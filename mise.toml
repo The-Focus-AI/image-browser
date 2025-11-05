@@ -5,15 +5,15 @@ node = "latest"
 
 [tasks.setup-supabase-env]
 description = "Set up Supabase environment variables"
-run = "supabase status -o env > processor/.env"
+run = "supabase status -o env > mlx-local/.env"
 
 [tasks.run-browse]
 description = "Run the image browser"
 run = "cd browse && dotenvx run -- pnpm run dev"
 
-[tasks.run-processor]
-description = "Run the image processor"
-run = "cd processor && mise run install && mise run run"
+[tasks.run-mlx-local]
+description = "Run the local MLX image browser"
+run = "cd mlx-local && mise run install && mise run web"
 
 [tasks.run-upload]
 description = "Run the image uploader"

@@ -1,33 +1,116 @@
-# Collect your images
+# Image Browser
 
-Put a bunch of images in images/
+This repo supports two complementary systems for image search and browsing:
 
-# Process them
+- Local (MLX on Apple Silicon): run a lightweight Flask app that queries your Supabase Postgres with CLIP embeddings using MLX locally. Directory: `mlx-local/`.
+- Cloud loader and embedding backfill (R2 + Replicate): upload images in `images/` to Cloudflare R2 and backfill missing embeddings via Replicate. Directory: `loader/`.
 
+## Basic workflow
+
+1. Put images into `images/`.
+2. Push them to the main server (R2 + DB rows) by running sync:
+   
+   ```bash
+   mise run sync
+   ```
+
+This scans `images/`, uploads new files to R2, and ensures a row exists in `image_embeddings`. A separate worker can backfill embeddings via Replicate.
+
+## Local MLX browser (optional)
+
+If you want a local browser that queries the same database using MLX:
+
+```bash
+# write Supabase env vars into mlx-local/.env for convenience
 mise setup-supabase-env
 
-mise run-processor
+# start the local Flask browser
+mise run-mlx-local
+```
 
+## Cloud loader details
 
-# Local deploy
+See `loader/README.md` for full setup. In short, configure `loader/.env`, then:
 
-supabase start
+```bash
+# ensure DB schema exists
+(cd loader && npm run ensure-schema)
 
-mise run 
+# upload images and upsert DB rows (sync is a convenience wrapper)
+mise sync
 
-# supbase
+# backfill missing embeddings via Replicate
+(cd loader && npm run embed)
+```
 
-supabase init
+## Cloud setup (R2 + public URL + Database)
 
-# vite
+To use the cloud workflow and keep `browse` in sync, configure the following and ensure both `loader` and `browse` point to the same values:
 
-npm create vite@latest
+- R2 storage (bucket and credentials)
+- Public image base URL (for serving files from R2)
+- Postgres database URL (Supabase)
+- Embedding vector dimension (must match DB `vector` size)
 
+### 1) Cloudflare R2
+- Create an R2 bucket (e.g., `images`).
+- Create an access key (Account ID, Access Key ID, Secret Access Key).
+- Optional: set a prefix (e.g., `photos/`).
 
+In `loader/.env`:
 
-# clerk
+```env
+R2_ACCOUNT_ID=xxxxxxxxxxxxxxxxxxxx
+R2_ACCESS_KEY_ID=your_access_key_id
+R2_SECRET_ACCESS_KEY=your_secret_access_key
+R2_BUCKET=images
+# Optional inside-bucket path prefix
+R2_PREFIX=
+```
 
-# image-processer
+### 2) Public image URL (must match in loader and browse)
+Set the public base URL that serves your R2 objects. If you’re using the default R2 domain, it typically looks like:
 
-mise run install
+```text
+https://<bucket>.<accountid>.r2.cloudflarestorage.com
+```
 
+In `loader/.env` and `browse/.env` set the same value:
+
+```env
+IMAGE_BASE_URL=https://bucket.accountid.r2.cloudflarestorage.com
+```
+
+### 3) Database URL (must match in loader and browse)
+Use your Supabase Postgres connection URL. Both services must point to the same database so filenames in `image_embeddings` line up.
+
+In `loader/.env` and `browse/.env`:
+
+```env
+SUPABASE_DB_URL=postgresql://user:pass@host:5432/dbname
+```
+
+For the local MLX browser (`mlx-local/.env`), the Supabase CLI helper populates:
+
+```env
+DB_URL=postgresql://user:pass@host:5432/dbname
+```
+
+Run:
+
+```bash
+mise setup-supabase-env  # writes DB_URL into mlx-local/.env
+```
+
+### 4) Embedding vector dimension (must match DB schema)
+Set a consistent dimension in both `loader` and `browse` to match your pgvector column size.
+
+In `loader/.env` and `browse/.env`:
+
+```env
+EXPECTED_VECTOR_DIM=768
+```
+
+Notes:
+- If you change models, update `EXPECTED_VECTOR_DIM` accordingly and ensure your database vector size matches.
+- `browse` will warn if the returned embedding length differs from `EXPECTED_VECTOR_DIM`.
