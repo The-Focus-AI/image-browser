@@ -30,8 +30,18 @@ export function getPool(): Pool {
       max: process.env.PG_MAX ? Number(process.env.PG_MAX) : 5,
       idleTimeoutMillis: process.env.PG_IDLE ? Number(process.env.PG_IDLE) : 10000
     });
-    // Avoid process crash on server-initiated connection close
-    pool.on("error", (err) => {
+    // Avoid noisy logs on expected pool shutdown/termination signals
+    pool.on("error", (err: any) => {
+      const code = err?.code as string | undefined;
+      const msg = String(err?.message || "");
+      if (
+        code === "57P01" || // admin shutdown
+        code === "XX000" || // internal error (db_termination observed)
+        /terminat/i.test(msg) ||
+        /db_termination/i.test(msg)
+      ) {
+        return; // ignore expected termination during/after shutdown
+      }
       // eslint-disable-next-line no-console
       console.warn("pg pool error (ignored)", err);
     });

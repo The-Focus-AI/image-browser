@@ -18,3 +18,7 @@ run = "cd loader && pnpm run upload"
 [tasks.run-embed]
 description = "Run the image embedder"
 run = "cd loader && pnpm run embed"
+
+[tasks.sync]
+description = "Run the image syncer"
+run = "cd loader && pnpm run sync"

@@ -7,6 +7,7 @@ from flask import Flask, request, render_template_string, url_for, redirect
 # Load environment variables
 load_dotenv()
 SUPABASE_DB_URL = os.getenv("DB_URL")
+TITLE = os.getenv("TITLE", "Image Search")
 
 # Initialize the mlx_clip model
 clip = mlx_clip.mlx_clip("mlx_model")
@@ -19,7 +20,7 @@ HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Image Search</title>
+    <title>{{ title }}</title>
     <style>
         body { font-family: sans-serif; margin: 40px; }
         .search-bar { margin-bottom: 20px; }
@@ -62,6 +63,9 @@ HTML_TEMPLATE = '''
         {% endfor %}
     </div>
 </body>
+<footer style="margin-top: 40px; text-align: center; color: #666;">
+    made by <a href="https://thefocus.ai" target="_blank" rel="noopener noreferrer">thefocus.ai</a>
+</footer>
 </html>
 '''
 
@@ -88,7 +92,7 @@ def index():
             conn.close()
         except Exception as e:
             images = []
-    return render_template_string(HTML_TEMPLATE, images=images, query=query)
+    return render_template_string(HTML_TEMPLATE, images=images, query=query, title=TITLE)
 
 @app.route('/neighbors/<file_name>')
 def neighbors(file_name):
@@ -124,7 +128,7 @@ def neighbors(file_name):
             conn.close()
         except Exception as e:
             images = []
-    return render_template_string(HTML_TEMPLATE, images=images, query=None)
+    return render_template_string(HTML_TEMPLATE, images=images, query=None, title=TITLE)
 
 if __name__ == '__main__':
     app.run(debug=True) 

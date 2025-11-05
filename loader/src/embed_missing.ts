@@ -21,9 +21,12 @@ function resolveImageUrl(fileName: string): string {
 
 async function fetchMissing(limit: number): Promise<string[]> {
   const pool = getPool();
-  const { rows } = await pool.query<{ file_name: string }>(
-    `select file_name from image_embeddings where embedding is null limit $1;`,
-    [limit]
+  const { rows } = await queryWithDbRetry(() =>
+    pool.query<{ file_name: string }>(
+      `select file_name from image_embeddings where embedding is null limit $1;`,
+      [limit]
+    ),
+    "fetchMissing"
   );
   return rows.map((r) => r.file_name);
 }
@@ -31,9 +34,13 @@ async function fetchMissing(limit: number): Promise<string[]> {
 async function updateEmbedding(fileName: string, embedding: number[]): Promise<void> {
   const pool = getPool();
   const vec = toVectorParam(embedding);
-  await pool.query(
-    `update image_embeddings set embedding = $1::vector where file_name = $2;`,
-    [vec, fileName]
+  await queryWithDbRetry(
+    () =>
+      pool.query(
+        `update image_embeddings set embedding = $1::vector where file_name = $2;`,
+        [vec, fileName]
+      ),
+    `updateEmbedding:${fileName}`
   );
 }
 
@@ -77,6 +84,53 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
   throw lastErr;
 }
 
+const RETRYABLE_DB_CODES = new Set([
+  "57P01", // admin shutdown
+  "57P02",
+  "57P03",
+  "53300", // too many connections
+  "53400",
+  "08006", // connection failure
+  "08003",
+  "08000",
+  "08001",
+  "08004",
+  "08007",
+  "08P01",
+  "XX000" // internal error (observed as db_termination)
+]);
+
+function isRetryableDbError(err: any): boolean {
+  const code = err?.code as string | undefined;
+  const msg = String(err?.message || "");
+  if (code && RETRYABLE_DB_CODES.has(code)) return true;
+  if (/terminat/i.test(msg) || /db_termination/i.test(msg) || /Connection terminated/i.test(msg)) return true;
+  if ((err?.errno === "ECONNRESET") || (err?.name === "ConnectionTerminatedError")) return true;
+  return false;
+}
+
+async function queryWithDbRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  const delays = [300, 600, 1200, 2400, 5000];
+  let lastErr: any;
+  for (let i = 0; i < delays.length; i++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      if (isRetryableDbError(err)) {
+        // eslint-disable-next-line no-console
+        console.warn(`${label} DB op failed (${err?.code || ""}), retrying in ${delays[i]}ms...`);
+        await wait(delays[i]);
+        continue;
+      }
+      // eslint-disable-next-line no-console
+      console.error(`${label} DB op failed (non-retryable)`, err);
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
 async function main(): Promise<void> {
   const limit = process.env.EMBED_LIMIT ? Number(process.env.EMBED_LIMIT) : (Number(process.argv[2]) || 100);
   // eslint-disable-next-line no-console
@@ -85,8 +139,23 @@ async function main(): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(`Embedding up to ${targets.length} images...`);
   const limitFn = pLimit(CONCURRENCY);
-  const tasks = targets.map((fileName) => limitFn(() => withRetry(() => processOne(fileName), fileName)));
-  await Promise.all(tasks);
+  const tasks = targets.map((fileName) =>
+    limitFn(async () => {
+      try {
+        await withRetry(() => processOne(fileName), fileName);
+      } catch (err: any) {
+        // eslint-disable-next-line no-console
+        console.warn(`Embedding failed for ${fileName}`, err?.message || err);
+        throw err;
+      }
+    })
+  );
+  const results = await Promise.allSettled(tasks);
+  const failures = results.filter((r) => r.status === "rejected").length;
+  if (failures > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(`Completed with ${failures} failures (will retry in next cycle if using sync)`);
+  }
   // eslint-disable-next-line no-console
   console.log("Embedding backfill complete. Closing DB pool...");
   await getPool().end();

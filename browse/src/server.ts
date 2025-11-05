@@ -20,6 +20,7 @@ const IMAGE_BASE_URL = process.env.IMAGE_BASE_URL; // for future R2 usage
 const EXPECTED_VECTOR_DIM = process.env.EXPECTED_VECTOR_DIM
   ? Number(process.env.EXPECTED_VECTOR_DIM)
   : 0;
+const PAGE_TITLE = process.env.TITLE || "Image Search";
 
 function sslConfigFor(url: string): any {
   if (!url) return undefined;
@@ -127,7 +128,7 @@ const HTML_TEMPLATE = (
 ) => `<!DOCTYPE html>
 <html>
 <head>
-  <title>Image Search</title>
+  <title>${PAGE_TITLE}</title>
   <style>
     body { font-family: sans-serif; margin: 40px; }
     .search-bar { margin-bottom: 20px; }
@@ -259,6 +260,10 @@ const HTML_TEMPLATE = (
         setInterval(loadStats, 20000);
       })();
     </script>
+
+    <footer style="margin-top: 40px; text-align: center; color: #666;">
+      made by <a href="https://thefocus.ai" target="_blank" rel="noopener noreferrer">thefocus.ai</a>
+    </footer>
   </body>
   </html>`;
 

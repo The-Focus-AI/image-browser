@@ -6,7 +6,8 @@
   "scripts": {
     "upload": "tsx src/upload_r2.ts",
     "embed": "tsx src/embed_missing.ts",
-    "ensure-schema": "tsx src/db.ts ensure-schema"
+    "ensure-schema": "tsx src/db.ts ensure-schema",
+    "sync": "tsx src/sync.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.614.0",
