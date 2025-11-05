@@ -247,7 +247,7 @@ app.get("/neighbors/:file_name", async (req: Request, res: Response) => {
        LIMIT 30;`,
       [embeddingText, fileName]
     );
-    const images = rows.map((r) => r.file_name);
+    const images = [fileName, ...rows.map((r) => r.file_name)];
     res.type("html").send(renderTemplate(images, null));
   } catch (err) {
     // eslint-disable-next-line no-console

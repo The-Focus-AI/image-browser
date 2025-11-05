@@ -21,11 +21,12 @@ function resolveImageUrl(fileName: string): string {
 
 async function fetchMissing(limit: number): Promise<string[]> {
   const pool = getPool();
-  const { rows } = await queryWithDbRetry(() =>
-    pool.query<{ file_name: string }>(
-      `select file_name from image_embeddings where embedding is null limit $1;`,
-      [limit]
-    ),
+  const { rows } = await queryWithDbRetry(
+    () =>
+      pool.query<{ file_name: string }>(
+        `select file_name from image_embeddings where embedding is null limit $1;`,
+        [limit]
+      ),
     "fetchMissing"
   );
   return rows.map((r) => r.file_name);
@@ -132,30 +133,45 @@ async function queryWithDbRetry<T>(fn: () => Promise<T>, label: string): Promise
 }
 
 async function main(): Promise<void> {
-  const limit = process.env.EMBED_LIMIT ? Number(process.env.EMBED_LIMIT) : (Number(process.argv[2]) || 100);
+  const batchSize = process.env.EMBED_LIMIT ? Number(process.env.EMBED_LIMIT) : (Number(process.argv[2]) || 100);
   // eslint-disable-next-line no-console
-  console.log("Starting embed_missing with config:", { IMAGE_BASE_URL, CONCURRENCY, EXPECTED_VECTOR_DIM, limit });
-  const targets = await fetchMissing(limit);
-  // eslint-disable-next-line no-console
-  console.log(`Embedding up to ${targets.length} images...`);
-  const limitFn = pLimit(CONCURRENCY);
-  const tasks = targets.map((fileName) =>
-    limitFn(async () => {
-      try {
-        await withRetry(() => processOne(fileName), fileName);
-      } catch (err: any) {
-        // eslint-disable-next-line no-console
-        console.warn(`Embedding failed for ${fileName}`, err?.message || err);
-        throw err;
-      }
-    })
-  );
-  const results = await Promise.allSettled(tasks);
-  const failures = results.filter((r) => r.status === "rejected").length;
-  if (failures > 0) {
+  console.log("Starting embed_missing with config:", { IMAGE_BASE_URL, CONCURRENCY, EXPECTED_VECTOR_DIM, batchSize });
+
+  let iteration = 0;
+  for (;;) {
+    iteration += 1;
     // eslint-disable-next-line no-console
-    console.warn(`Completed with ${failures} failures (will retry in next cycle if using sync)`);
+    console.log(`Fetching up to ${batchSize} missing embeddings (iteration ${iteration})...`);
+    const targets = await fetchMissing(batchSize);
+    if (!targets.length) {
+      // eslint-disable-next-line no-console
+      console.log("No missing embeddings remaining.");
+      break;
+    }
+    // eslint-disable-next-line no-console
+    console.log(`Embedding ${targets.length} images...`);
+    const limitFn = pLimit(CONCURRENCY);
+    const tasks = targets.map((fileName) =>
+      limitFn(async () => {
+        try {
+          await withRetry(() => processOne(fileName), fileName);
+        } catch (err: any) {
+          // eslint-disable-next-line no-console
+          console.warn(`Embedding failed for ${fileName}`, err?.message || err);
+          throw err;
+        }
+      })
+    );
+    const results = await Promise.allSettled(tasks);
+    const failures = results.filter((r) => r.status === "rejected").length;
+    if (failures > 0) {
+      // eslint-disable-next-line no-console
+      console.warn(`Batch completed with ${failures} failures (will retry on next batch)`);
+    }
+    // Small delay to avoid hot-looping DB
+    await wait(500);
   }
+
   // eslint-disable-next-line no-console
   console.log("Embedding backfill complete. Closing DB pool...");
   await getPool().end();

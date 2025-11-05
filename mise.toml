@@ -7,6 +7,10 @@ node = "latest"
 description = "Set up Supabase environment variables"
 run = "supabase status -o env > processor/.env"
 
+[tasks.run-browse]
+description = "Run the image browser"
+run = "cd browse && dotenvx run -- pnpm run dev"
+
 [tasks.run-processor]
 description = "Run the image processor"
 run = "cd processor && mise run install && mise run run"
