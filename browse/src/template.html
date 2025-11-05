@@ -9,6 +9,11 @@
     .masonry-item { break-inside: avoid; margin-bottom: 16px; display: inline-block; width: 100%; }
     .masonry-item img { cursor: pointer; border: 2px solid #eee; border-radius: 8px; transition: border 0.2s; width: 100%; display: block; }
     .masonry-item img:hover { border: 2px solid #007bff; }
+    .image-wrap { position: relative; }
+    .overlay-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; opacity: 0; transition: opacity 0.15s ease-in-out; }
+    .image-wrap:hover .overlay-actions { opacity: 1; }
+    .icon-btn { width: 28px; height: 28px; border-radius: 6px; background: rgba(0,0,0,0.55); color: #fff; display: grid; place-items: center; text-decoration: none; font-size: 14px; font-weight: 700; line-height: 1; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+    .icon-btn:hover { background: rgba(0,0,0,0.7); }
     @media (max-width: 1200px) { .masonry { columns: 4; } }
     @media (max-width: 900px) { .masonry { columns: 3; } }
     @media (max-width: 600px) { .masonry { columns: 2; } }

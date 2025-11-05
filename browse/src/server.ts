@@ -144,14 +144,20 @@ function escapeHtmlAttribute(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
+function googleLensUrl(imageUrl: string): string {
+  // Lens supports url param; this will redirect appropriately
+  const base = "https://lens.google.com/uploadbyurl?url=";
+  return `${base}${encodeURIComponent(imageUrl)}`;
+}
+
 function renderTemplate(images: string[], query: string | null): string {
   const imagesHtml = images
-    .map(
-      (file) =>
-        `\n        <div class=\"masonry-item\">\n          <a href=\"/neighbors/${encodeURIComponent(
-            file
-          )}\">\n            <img src=\"${resolveImageUrl(file)}\" alt=\"${file}\" />\n          </a>\n        </div>`
-    )
+    .map((file) => {
+      const src = resolveImageUrl(file);
+      const googleLink = USING_REMOTE_IMAGES ? `<a class=\"icon-btn\" href=\"${googleLensUrl(src)}\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Search on Google\" aria-label=\"Search on Google\">G</a>` : "";
+      const downloadLink = `<a class=\"icon-btn\" href=\"${src}\" download title=\"Download image\" aria-label=\"Download image\">↓</a>`;
+      return `\n        <div class=\"masonry-item\">\n          <div class=\"image-wrap\">\n            <a class=\"image-link\" href=\"/neighbors/${encodeURIComponent(file)}\">\n              <img src=\"${src}\" alt=\"${file}\" />\n            </a>\n            <div class=\"overlay-actions\">\n              ${googleLink}${googleLink ? "\n              " : ""}${downloadLink}\n            </div>\n          </div>\n        </div>`;
+    })
     .join("");
 
   const html = TEMPLATE_SOURCE
