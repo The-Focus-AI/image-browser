@@ -33,6 +33,15 @@ if (!replicateToken) {
   console.warn("REPLICATE_API_TOKEN is not set; embedding calls will fail.");
 }
 
+// Explicitly error-log when not configured to serve from remote bucket
+const USING_REMOTE_IMAGES = Boolean(IMAGE_BASE_URL);
+if (!USING_REMOTE_IMAGES) {
+  // eslint-disable-next-line no-console
+  console.error(
+    "IMAGE_BASE_URL is not set; serving images from local /images instead of remote bucket. Set IMAGE_BASE_URL to your R2 public base URL."
+  );
+}
+
 let pool: Pool | null = null;
 if (DATABASE_URL) {
   pool = new Pool({ connectionString: DATABASE_URL });
@@ -50,10 +59,18 @@ app.use((req, _res, next) => {
 // Serve local images directory at /images
 app.use("/images", express.static(IMAGES_DIR));
 
+let warnedLocalImages = false;
 function resolveImageUrl(fileName: string): string {
   if (IMAGE_BASE_URL) {
     const base = IMAGE_BASE_URL.endsWith("/") ? IMAGE_BASE_URL.slice(0, -1) : IMAGE_BASE_URL;
     return `${base}/${encodeURIComponent(fileName)}`;
+  }
+  if (!warnedLocalImages) {
+    // eslint-disable-next-line no-console
+    console.error(
+      "Serving images from local filesystem. Configure IMAGE_BASE_URL to use the remote bucket."
+    );
+    warnedLocalImages = true;
   }
   return `/images/${encodeURIComponent(fileName)}`;
 }
@@ -70,6 +87,19 @@ function listLocalImages(limit = 60): string[] {
   } catch (err) {
     return [];
   }
+}
+
+async function listDbImages(limit = 60): Promise<string[]> {
+  if (!pool) return [];
+  const { rows }: QueryResult<{ file_name: string }> = await pool.query(
+    `SELECT file_name
+     FROM image_embeddings
+     WHERE embedding IS NOT NULL
+     ORDER BY created_at DESC
+     LIMIT $1;`,
+    [limit]
+  );
+  return rows.map((r) => r.file_name);
 }
 
 // getTextEmbedding is imported from ./replicate
@@ -138,6 +168,7 @@ app.get("/", async (req: Request, res: Response) => {
       const { rows }: QueryResult<{ file_name: string; distance: number }> = await pool.query(
         `SELECT file_name, embedding <#> $1::vector AS distance
          FROM image_embeddings
+         WHERE embedding IS NOT NULL
          ORDER BY distance ASC
          LIMIT 30;`,
         [vec]
@@ -146,8 +177,13 @@ app.get("/", async (req: Request, res: Response) => {
       res.type("html").send(HTML_TEMPLATE(images, q));
       return;
     }
-    // No query: list local images
-    const images = listLocalImages(60);
+    // No query: list from DB if available, else fallback to local dir
+    let images: string[] = [];
+    if (pool) {
+      images = await listDbImages(60);
+    } else {
+      images = listLocalImages(60);
+    }
     res.type("html").send(HTML_TEMPLATE(images, null));
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -164,7 +200,7 @@ app.get("/neighbors/:file_name", async (req: Request, res: Response) => {
     const { rows: embRows }: QueryResult<{ embedding_text: string }> = await pool.query(
       `SELECT embedding::text AS embedding_text
        FROM image_embeddings
-       WHERE file_name = $1
+       WHERE file_name = $1 AND embedding IS NOT NULL
        LIMIT 1;`,
       [fileName]
     );
@@ -176,7 +212,7 @@ app.get("/neighbors/:file_name", async (req: Request, res: Response) => {
     const { rows }: QueryResult<{ file_name: string; distance: number }> = await pool.query(
       `SELECT file_name, embedding <#> $1::vector AS distance
        FROM image_embeddings
-       WHERE file_name != $2
+       WHERE file_name != $2 AND embedding IS NOT NULL
        ORDER BY distance ASC
        LIMIT 30;`,
       [embeddingText, fileName]

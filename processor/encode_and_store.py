@@ -24,7 +24,7 @@ clip = mlx_clip.mlx_clip("mlx_model")
 IMAGE_DIR = "../images/"
 
 # Table name in Supabase
-TABLE_NAME = "image_embeddings"
+TABLE_NAME = "image_embeddings_clip"
 
 # --- Create table if it doesn't exist using psycopg2 ---
 # Get embedding dimension by encoding a sample image (first image in directory)
