@@ -21,6 +21,14 @@ const EXPECTED_VECTOR_DIM = process.env.EXPECTED_VECTOR_DIM
   ? Number(process.env.EXPECTED_VECTOR_DIM)
   : 0;
 
+function sslConfigFor(url: string): any {
+  if (!url) return undefined;
+  if (/pooler\.supabase\.com|supabase\.co/.test(url) || (process.env.PGSSL || "").toLowerCase() === "require") {
+    return { rejectUnauthorized: false };
+  }
+  return undefined;
+}
+
 // Ensure required env variables
 if (!DATABASE_URL) {
   // eslint-disable-next-line no-console
@@ -44,7 +52,11 @@ if (!USING_REMOTE_IMAGES) {
 
 let pool: Pool | null = null;
 if (DATABASE_URL) {
-  pool = new Pool({ connectionString: DATABASE_URL });
+  pool = new Pool({ connectionString: DATABASE_URL, ssl: sslConfigFor(DATABASE_URL), keepAlive: true });
+  pool.on("error", (err) => {
+    // eslint-disable-next-line no-console
+    console.warn("pg pool error (ignored)", err);
+  });
 }
 
 const app = express();
@@ -148,6 +160,26 @@ const HTML_TEMPLATE = (
     </div>
   </body>
   </html>`;
+
+app.get("/stats", async (_req: Request, res: Response) => {
+  try {
+    if (!pool) throw new Error("Database not configured");
+    const { rows: totalRows }: QueryResult<{ count: number }> = await pool.query(
+      `SELECT count(*)::int AS count FROM image_embeddings;`
+    );
+    const { rows: encodedRows }: QueryResult<{ count: number }> = await pool.query(
+      `SELECT count(*)::int AS count FROM image_embeddings WHERE embedding IS NOT NULL;`
+    );
+    const total = Number(totalRows[0]?.count || 0);
+    const encoded = Number(encodedRows[0]?.count || 0);
+    const unencoded = Math.max(0, total - encoded);
+    res.json({ total, encoded, unencoded });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("GET /stats error", err);
+    res.status(500).json({ error: "Stats unavailable" });
+  }
+});
 
 app.get("/", async (req: Request, res: Response) => {
   const q = (req.query.q as string | undefined)?.trim() || "";

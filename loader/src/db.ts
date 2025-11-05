@@ -11,10 +11,30 @@ if (!DATABASE_URL) {
   console.warn("SUPABASE_DB_URL is not set; DB operations will fail.");
 }
 
+function sslConfigFor(url: string): any {
+  if (!url) return undefined;
+  // Enable SSL for Supabase pooler or when PGSSL=require
+  if (/pooler\.supabase\.com|supabase\.co/.test(url) || (process.env.PGSSL || "").toLowerCase() === "require") {
+    return { rejectUnauthorized: false };
+  }
+  return undefined;
+}
+
 let pool: Pool | null = null;
 export function getPool(): Pool {
   if (!pool) {
-    pool = new Pool({ connectionString: DATABASE_URL });
+    pool = new Pool({
+      connectionString: DATABASE_URL,
+      ssl: sslConfigFor(DATABASE_URL),
+      keepAlive: true,
+      max: process.env.PG_MAX ? Number(process.env.PG_MAX) : 5,
+      idleTimeoutMillis: process.env.PG_IDLE ? Number(process.env.PG_IDLE) : 10000
+    });
+    // Avoid process crash on server-initiated connection close
+    pool.on("error", (err) => {
+      // eslint-disable-next-line no-console
+      console.warn("pg pool error (ignored)", err);
+    });
   }
   return pool;
 }

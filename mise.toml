@@ -1,5 +1,6 @@
 [tools]
 node = "latest"
+"npm:vercel" = "latest"
 
 
 [tasks.setup-supabase-env]
@@ -9,3 +10,11 @@ run = "supabase status -o env > processor/.env"
 [tasks.run-processor]
 description = "Run the image processor"
 run = "cd processor && mise run install && mise run run"
+
+[tasks.run-upload]
+description = "Run the image uploader"
+run = "cd loader && pnpm run upload"
+
+[tasks.run-embed]
+description = "Run the image embedder"
+run = "cd loader && pnpm run embed"
