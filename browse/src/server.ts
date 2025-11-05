@@ -122,150 +122,42 @@ function toVectorParam(embedding: number[] | string): string {
   return `[${embedding.join(",")}]`;
 }
 
-const HTML_TEMPLATE = (
-  images: string[],
-  query: string | null
-) => `<!DOCTYPE html>
-<html>
-<head>
-  <title>${PAGE_TITLE}</title>
-  <style>
-    body { font-family: sans-serif; margin: 40px; }
-    .search-bar { margin-bottom: 20px; }
-    .masonry { columns: 5; column-gap: 16px; }
-    .masonry-item { break-inside: avoid; margin-bottom: 16px; display: inline-block; width: 100%; }
-    .masonry-item img { cursor: pointer; border: 2px solid #eee; border-radius: 8px; transition: border 0.2s; width: 100%; display: block; }
-    .masonry-item img:hover { border: 2px solid #007bff; }
-    @media (max-width: 1200px) { .masonry { columns: 4; } }
-    @media (max-width: 900px) { .masonry { columns: 3; } }
-    @media (max-width: 600px) { .masonry { columns: 2; } }
+// Load external HTML template and provide a renderer
+const TEMPLATE_PATH = path.join(__dirname, "template.html");
+let TEMPLATE_SOURCE = "";
+try {
+  TEMPLATE_SOURCE = fs.readFileSync(TEMPLATE_PATH, "utf-8");
+} catch (err) {
+  // eslint-disable-next-line no-console
+  console.error("Failed to load template.html from", TEMPLATE_PATH, err);
+  TEMPLATE_SOURCE = "<!DOCTYPE html><html><head><title>{{PAGE_TITLE}}</title></head><body><div class=\"masonry\">{{IMAGES_HTML}}</div></body></html>";
+}
 
-    /* Stats widget */
-    .stats-fixed { position: fixed; top: 16px; right: 16px; z-index: 1000; display: none; }
-    .stats-button { appearance: none; border: none; background: transparent; padding: 0; cursor: pointer; }
-    .stats-circle { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(#e6e6e6 0deg, #e6e6e6 360deg); box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
-    .stats-circle-inner { width: 32px; height: 32px; border-radius: 50%; background: #fff; display: grid; place-items: center; font-size: 11px; font-weight: 600; color: #333; }
-    .stats-circle-inner small { font-weight: 500; font-size: 10px; color: #666; }
+function escapeHtmlAttribute(value: string): string {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/\"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
-    /* Modal */
-    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; z-index: 1001; }
-    .modal-content { background: #fff; border-radius: 10px; width: min(92vw, 380px); box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-    .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid #eee; }
-    .modal-title { margin: 0; font-size: 15px; font-weight: 700; }
-    .modal-close { background: transparent; border: none; font-size: 18px; line-height: 1; cursor: pointer; color: #666; }
-    .modal-body { padding: 14px; font-size: 14px; color: #333; }
-    .modal-body p { margin: 8px 0; }
-    .modal-body code { background: #f6f6f6; padding: 1px 6px; border-radius: 4px; }
-  </style>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  </head>
-  <body>
-    <!-- Stats widget (hidden by default; shown when stats load) -->
-    <div class="stats-fixed" id="statsWidget" aria-hidden="true">
-      <button class="stats-button" id="statsButton" title="Dataset status" aria-label="Dataset status" aria-haspopup="dialog">
-        <div class="stats-circle" id="statsCircle" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-          <div class="stats-circle-inner"><span id="statsLabel">0%</span></div>
-        </div>
-      </button>
-    </div>
+function renderTemplate(images: string[], query: string | null): string {
+  const imagesHtml = images
+    .map(
+      (file) =>
+        `\n        <div class=\"masonry-item\">\n          <a href=\"/neighbors/${encodeURIComponent(
+            file
+          )}\">\n            <img src=\"${resolveImageUrl(file)}\" alt=\"${file}\" />\n          </a>\n        </div>`
+    )
+    .join("");
 
-    <!-- Modal -->
-    <div class="modal-overlay" id="statsModal" role="dialog" aria-modal="true" aria-labelledby="statsModalTitle">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3 class="modal-title" id="statsModalTitle">Dataset stats</h3>
-          <button class="modal-close" id="statsClose" aria-label="Close">×</button>
-        </div>
-        <div class="modal-body">
-          <p><strong>Total</strong>: <span id="statTotal">0</span></p>
-          <p><strong>Encoded</strong>: <span id="statEncoded">0</span></p>
-          <p><strong>Pending</strong>: <span id="statUnencoded">0</span></p>
-          <p><strong>Progress</strong>: <span id="statPercent">0%</span></p>
-          <p>This shows how many images have embeddings stored. Data is fetched from <code>/stats</code>.</p>
-        </div>
-      </div>
-    </div>
+  const html = TEMPLATE_SOURCE
+    .replace(/{{PAGE_TITLE}}/g, PAGE_TITLE)
+    .replace(/{{QUERY_VALUE}}/g, escapeHtmlAttribute(query ? String(query) : ""))
+    .replace(/{{IMAGES_HTML}}/g, imagesHtml);
 
-    <form class="search-bar" method="get" action="/">
-      <input type="text" name="q" value="${query ? String(query).replace(/"/g, '&quot;') : ""}" placeholder="Search for images..." style="width: 300px; padding: 8px; font-size: 16px;" />
-      <button type="submit" style="padding: 8px 16px; font-size: 16px;">Search</button>
-    </form>
-    <div class="masonry">
-      ${images
-        .map(
-          (file) => `
-        <div class="masonry-item">
-          <a href="/neighbors/${encodeURIComponent(file)}">
-            <img src="${resolveImageUrl(file)}" alt="${file}" />
-          </a>
-        </div>`
-        )
-        .join("")}
-    </div>
-
-    <script>
-      (function() {
-        const widget = document.getElementById('statsWidget');
-        const circle = document.getElementById('statsCircle');
-        const label = document.getElementById('statsLabel');
-        const modal = document.getElementById('statsModal');
-        const btn = document.getElementById('statsButton');
-        const close = document.getElementById('statsClose');
-        const elTotal = document.getElementById('statTotal');
-        const elEncoded = document.getElementById('statEncoded');
-        const elUnencoded = document.getElementById('statUnencoded');
-        const elPercent = document.getElementById('statPercent');
-
-        function setProgress(encoded, total) {
-          const pct = total > 0 ? Math.round((encoded / total) * 100) : 0;
-          const angle = Math.min(360, Math.max(0, Math.round(3.6 * pct)));
-          circle.style.background = 'conic-gradient(#0a84ff ' + angle + 'deg, #e6e6e6 0deg)';
-          circle.setAttribute('aria-valuenow', String(pct));
-          label.textContent = pct + '%';
-          elTotal.textContent = String(total);
-          elEncoded.textContent = String(encoded);
-          elUnencoded.textContent = String(Math.max(0, total - encoded));
-          elPercent.textContent = pct + '%';
-        }
-
-        function show(el, on) { el.style.display = on ? 'flex' : 'none'; }
-
-        async function loadStats() {
-          try {
-            const res = await fetch('/stats', { headers: { 'accept': 'application/json' } });
-            if (!res.ok) throw new Error('stats not available');
-            const data = await res.json();
-            const total = Number(data.total || 0);
-            const encoded = Number(data.encoded || 0);
-            setProgress(encoded, total);
-            widget.style.display = 'block';
-            widget.setAttribute('aria-hidden', 'false');
-          } catch (e) {
-            // Hide widget if stats are unavailable (e.g., no DB configured)
-            widget.style.display = 'none';
-            widget.setAttribute('aria-hidden', 'true');
-          }
-        }
-
-        function openModal() { show(modal, true); }
-        function closeModal() { show(modal, false); }
-
-        btn.addEventListener('click', (e) => { e.preventDefault(); openModal(); });
-        close.addEventListener('click', closeModal);
-        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-        window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
-
-        // Initial load and periodic refresh
-        loadStats();
-        setInterval(loadStats, 20000);
-      })();
-    </script>
-
-    <footer style="margin-top: 40px; text-align: center; color: #666;">
-      made by <a href="https://thefocus.ai" target="_blank" rel="noopener noreferrer">thefocus.ai</a>
-    </footer>
-  </body>
-  </html>`;
+  return html;
+}
 
 app.get("/stats", async (_req: Request, res: Response) => {
   try {
@@ -312,7 +204,7 @@ app.get("/", async (req: Request, res: Response) => {
         [vec]
       );
       const images = rows.map((r) => r.file_name);
-      res.type("html").send(HTML_TEMPLATE(images, q));
+      res.type("html").send(renderTemplate(images, q));
       return;
     }
     // No query: list from DB if available, else fallback to local dir
@@ -322,7 +214,7 @@ app.get("/", async (req: Request, res: Response) => {
     } else {
       images = listLocalImages(60);
     }
-    res.type("html").send(HTML_TEMPLATE(images, null));
+    res.type("html").send(renderTemplate(images, null));
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("GET / error", { query: q, error: err });
@@ -343,7 +235,7 @@ app.get("/neighbors/:file_name", async (req: Request, res: Response) => {
       [fileName]
     );
     if (!embRows.length) {
-      res.type("html").send(HTML_TEMPLATE([], null));
+      res.type("html").send(renderTemplate([], null));
       return;
     }
     const embeddingText = embRows[0].embedding_text;
@@ -356,7 +248,7 @@ app.get("/neighbors/:file_name", async (req: Request, res: Response) => {
       [embeddingText, fileName]
     );
     const images = rows.map((r) => r.file_name);
-    res.type("html").send(HTML_TEMPLATE(images, null));
+    res.type("html").send(renderTemplate(images, null));
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("GET /neighbors error", { fileName, error: err });
