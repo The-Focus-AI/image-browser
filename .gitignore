@@ -1,6 +1,7 @@
 node_modules/
 images/
 images.bak/
+images.small/
 .env*
 .venv
 __pycache__/

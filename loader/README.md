@@ -58,6 +58,26 @@ npm run ensure-schema
 npm run upload
 ```
 
+### Upload performance tuning
+
+You can speed up uploads significantly with concurrency and by optionally skipping per-file HEAD checks against R2:
+
+- `UPLOAD_CONCURRENCY` (default: 8): number of files to process in parallel
+- `SKIP_R2_HEAD` (default: false): if `true`, always PUT to R2 without a prior HEAD; existing objects will be overwritten
+
+Examples:
+
+```bash
+# Upload with 16 concurrent workers
+UPLOAD_CONCURRENCY=16 npm run upload
+
+# Fast path for known-new files: skip HEAD checks
+SKIP_R2_HEAD=true npm run upload
+
+# Combine both
+UPLOAD_CONCURRENCY=16 SKIP_R2_HEAD=true npm run upload
+```
+
 - Backfill missing embeddings (from R2 URL):
 
 ```bash

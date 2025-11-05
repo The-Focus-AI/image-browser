@@ -8,6 +8,8 @@ import { ensureSchema, getPool, getAllFileNames } from "./db.js";
 dotenv.config();
 
 const IMAGES_DIR_ENV = process.env.IMAGES_DIR || "../images";
+const UPLOAD_CONCURRENCY = Number(process.env.UPLOAD_CONCURRENCY || 8);
+const SKIP_R2_HEAD = String(process.env.SKIP_R2_HEAD || "").toLowerCase() === "true";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // Resolve IMAGES_DIR relative to the loader root (../ from src)
@@ -42,7 +44,9 @@ async function main(): Promise<void> {
     IMAGES_DIR_ENV,
     IMAGES_DIR,
     R2_BUCKET: process.env.R2_BUCKET,
-    R2_PREFIX: process.env.R2_PREFIX || null
+    R2_PREFIX: process.env.R2_PREFIX || null,
+    UPLOAD_CONCURRENCY,
+    SKIP_R2_HEAD
   });
 
   await ensureSchema();
@@ -57,16 +61,41 @@ async function main(): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(`Found ${existingInDb.size} existing images in DB (will skip uploading these).`);
 
-  for (const fileName of files) {
-    if (existingInDb.has(fileName)) {
-      // eslint-disable-next-line no-console
-      console.log(`Already in database, skipping upload: ${fileName}`);
-      continue;
-    }
+  const toProcess = files.filter((f) => !existingInDb.has(f));
+  // eslint-disable-next-line no-console
+  console.log(`Processing ${toProcess.length} new images (not in DB).`);
+
+  // Simple concurrency pool
+  async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<void>): Promise<void> {
+    let index = 0;
+    const workers: Promise<void>[] = [];
+    const wrapped = async (workerId: number) => {
+      while (index < items.length) {
+        const current = index++;
+        await worker(items[current], current);
+      }
+    };
+    const poolSize = Math.max(1, concurrency);
+    for (let i = 0; i < poolSize; i++) workers.push(wrapped(i));
+    await Promise.all(workers);
+  }
+
+  await runWithConcurrency(toProcess, UPLOAD_CONCURRENCY, async (fileName) => {
     const key = toKey(fileName);
+    const filePath = path.join(IMAGES_DIR, fileName);
+
+    if (SKIP_R2_HEAD) {
+      // eslint-disable-next-line no-console
+      console.log(`Uploading (no HEAD) ${fileName} -> ${key}`);
+      await uploadFile(s3, filePath, key);
+      // eslint-disable-next-line no-console
+      console.log(`Uploaded ${fileName}`);
+      await upsertImageRow(fileName);
+      return;
+    }
+
     const exists = await existsInBucket(s3, key);
     if (!exists) {
-      const filePath = path.join(IMAGES_DIR, fileName);
       // eslint-disable-next-line no-console
       console.log(`Uploading ${fileName} -> ${key}`);
       await uploadFile(s3, filePath, key);
@@ -74,10 +103,10 @@ async function main(): Promise<void> {
       console.log(`Uploaded ${fileName}`);
     } else {
       // eslint-disable-next-line no-console
-      console.log(`Already exists in bucket, skipping: ${fileName}`);
+      console.log(`Already exists in bucket, skipping upload: ${fileName}`);
     }
     await upsertImageRow(fileName);
-  }
+  });
   // eslint-disable-next-line no-console
   console.log("Upload + DB upsert complete. Closing DB pool...");
   await getPool().end();
