@@ -1,0 +1,33 @@
+[tools]
+python = "latest"
+uv = "latest"
+
+[settings]
+python.uv_venv_auto = true
+
+[env]
+# Use the project name derived from the current directory
+PROJECT_NAME = "{{ config_root | basename }}"
+
+# Automatic virtualenv activation
+_.python.venv = { path = ".venv", create = true }
+
+[tasks.info]
+description = "Print project information"
+run = '''
+echo "Project: $PROJECT_NAME"
+echo "Virtual Environment: $VIRTUAL_ENV"
+'''
+
+[tasks.install]
+description = "Install dependencies"
+alias = "i"
+run = "uv pip install -r requirements.txt"
+
+[tasks.run]
+description = "Run the application"
+run = "python encode_and_store.py"
+
+[tasks.web]
+description = "Run the web application"
+run = "python app.py"

@@ -1,0 +1,11 @@
+[tools]
+node = "latest"
+
+
+[tasks.setup-supabase-env]
+description = "Set up Supabase environment variables"
+run = "supabase status -o env > processor/.env"
+
+[tasks.run-processor]
+description = "Run the image processor"
+run = "cd processor && mise run install && mise run run"
