@@ -7,7 +7,7 @@ node = "latest"
 description = "Set up Supabase environment variables"
 run = "supabase status -o env > mlx-local/.env"
 
-[tasks.run-browse]
+[tasks.browse]
 description = "Run the image browser"
 run = "cd browse && dotenvx run -- pnpm run dev"
 
@@ -15,11 +15,15 @@ run = "cd browse && dotenvx run -- pnpm run dev"
 description = "Run the local MLX image browser"
 run = "cd mlx-local && mise run install && mise run web"
 
-[tasks.run-upload]
+[tasks.upload]
 description = "Run the image uploader"
 run = "cd loader && pnpm run upload"
 
-[tasks.run-embed]
+[tasks.fast-upload]
+description = "Run the image uploader with fast mode"
+run = "cd loader && UPLOAD_CONCURRENCY=16 SKIP_R2_HEAD=true dotenvx run -- npm run upload"
+
+[tasks.embed]
 description = "Run the image embedder"
 run = "cd loader && pnpm run embed"
 

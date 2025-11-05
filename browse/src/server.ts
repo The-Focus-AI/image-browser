@@ -69,6 +69,9 @@ app.use((req, _res, next) => {
   next();
 });
 
+// Serve static assets (e.g., favicon) from /public
+app.use(express.static(path.join(__dirname, "public")));
+
 // Serve local images directory at /images
 app.use("/images", express.static(IMAGES_DIR));
 
