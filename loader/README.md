@@ -1,6 +1,8 @@
 # Loader (Cloudflare R2 + Embedding Backfill)
 
-This project uploads local images to Cloudflare R2 and ensures there is a row in Postgres (`image_embeddings`). A second worker backfills missing image embeddings using Replicate.
+This project uploads local images to Cloudflare R2, extracts image dimensions (width/height), and ensures there is a row in Postgres (`image_embeddings`). A second worker backfills missing image embeddings using Replicate.
+
+The loader uses shared library code from `../shared/` for database operations and Replicate API interactions, ensuring consistency with the browse application.
 
 ## Setup
 
@@ -46,13 +48,13 @@ npm install
 
 ## Commands
 
-- Ensure schema (creates `image_embeddings` if missing):
+- Ensure schema (creates `image_embeddings` with width/height columns if missing):
 
 ```bash
 npm run ensure-schema
 ```
 
-- Upload images (skips ones already in R2) and upsert DB rows:
+- Upload images (skips ones already in R2), extract dimensions, and upsert DB rows:
 
 ```bash
 npm run upload
