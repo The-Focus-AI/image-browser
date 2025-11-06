@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import pLimit from "p-limit";
-import { getPool, toVectorParam } from "./db.js";
-import { getImageEmbedding } from "./replicate.js";
+import { getPool, toVectorParam, getTableName } from "../shared/db.js";
+import { getImageEmbedding } from "../shared/replicate.js";
 
 dotenv.config();
 
@@ -20,11 +20,12 @@ function resolveImageUrl(fileName: string): string {
 }
 
 async function fetchMissing(limit: number): Promise<string[]> {
+  const tableName = getTableName();
   const pool = getPool();
   const { rows } = await queryWithDbRetry(
     () =>
       pool.query<{ file_name: string }>(
-        `select file_name from image_embeddings where embedding is null limit $1;`,
+        `select file_name from ${tableName} where embedding is null limit $1;`,
         [limit]
       ),
     "fetchMissing"
@@ -33,12 +34,13 @@ async function fetchMissing(limit: number): Promise<string[]> {
 }
 
 async function updateEmbedding(fileName: string, embedding: number[]): Promise<void> {
+  const tableName = getTableName();
   const pool = getPool();
   const vec = toVectorParam(embedding);
   await queryWithDbRetry(
     () =>
       pool.query(
-        `update image_embeddings set embedding = $1::vector where file_name = $2;`,
+        `update ${tableName} set embedding = $1::vector where file_name = $2;`,
         [vec, fileName]
       ),
     `updateEmbedding:${fileName}`
@@ -135,7 +137,7 @@ async function queryWithDbRetry<T>(fn: () => Promise<T>, label: string): Promise
 async function main(): Promise<void> {
   const batchSize = process.env.EMBED_LIMIT ? Number(process.env.EMBED_LIMIT) : (Number(process.argv[2]) || 100);
   // eslint-disable-next-line no-console
-  console.log("Starting embed_missing with config:", { IMAGE_BASE_URL, CONCURRENCY, EXPECTED_VECTOR_DIM, batchSize });
+  console.log("Starting embed with config:", { IMAGE_BASE_URL, CONCURRENCY, EXPECTED_VECTOR_DIM, batchSize, TABLE_NAME: getTableName() });
 
   let iteration = 0;
   for (;;) {
@@ -181,7 +183,7 @@ async function main(): Promise<void> {
 
 main().catch(async (err) => {
   // eslint-disable-next-line no-console
-  console.error("embed_missing failed", err);
+  console.error("embed failed", err);
   try {
     await getPool().end();
   } catch {}

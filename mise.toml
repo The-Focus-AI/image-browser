@@ -1,15 +1,17 @@
 [tools]
 node = "latest"
+"npm:@anthropic-ai/claude-code" = "latest"
 "npm:vercel" = "latest"
+pnpm = "latest"
 
 
 [tasks.setup-supabase-env]
 description = "Set up Supabase environment variables"
 run = "supabase status -o env > mlx-local/.env"
 
-[tasks.browse]
-description = "Run the image browser"
-run = "cd browse && dotenvx run -- pnpm run dev"
+[tasks.server]
+description = "Run the image browser server"
+run = "pnpm run server:dev"
 
 [tasks.run-mlx-local]
 description = "Run the local MLX image browser"
@@ -17,16 +19,28 @@ run = "cd mlx-local && mise run install && mise run web"
 
 [tasks.upload]
 description = "Run the image uploader"
-run = "cd loader && pnpm run upload"
+run = "pnpm run upload"
 
 [tasks.fast-upload]
 description = "Run the image uploader with fast mode"
-run = "cd loader && UPLOAD_CONCURRENCY=16 SKIP_R2_HEAD=true dotenvx run -- npm run upload"
+run = "UPLOAD_CONCURRENCY=16 SKIP_R2_HEAD=true pnpm run upload"
 
 [tasks.embed]
 description = "Run the image embedder"
-run = "cd loader && pnpm run embed"
+run = "pnpm run embed"
 
 [tasks.sync]
 description = "Run the image syncer"
-run = "cd loader && pnpm run sync"
+run = "pnpm run sync"
+
+[tasks.ensure-schema]
+description = "Ensure database schema exists"
+run = "pnpm run ensure-schema"
+
+[tasks.validate]
+description = "Validate environment (database, R2 bucket, URLs)"
+run = "pnpm run validate"
+
+[tasks.backfill-dimensions]
+description = "Backfill width/height for existing images"
+run = "pnpm run backfill-dimensions"

@@ -5,10 +5,16 @@ dotenv.config();
 
 const DATABASE_URL = process.env.SUPABASE_DB_URL || "";
 const EXPECTED_VECTOR_DIM = process.env.EXPECTED_VECTOR_DIM ? Number(process.env.EXPECTED_VECTOR_DIM) : 768;
+const R2_BUCKET = process.env.R2_BUCKET || "";
 
 if (!DATABASE_URL) {
   // eslint-disable-next-line no-console
   console.warn("SUPABASE_DB_URL is not set; DB operations will fail.");
+}
+
+if (!R2_BUCKET) {
+  // eslint-disable-next-line no-console
+  console.warn("R2_BUCKET is not set; table name derivation will fail.");
 }
 
 function sslConfigFor(url: string): any {
@@ -18,6 +24,20 @@ function sslConfigFor(url: string): any {
     return { rejectUnauthorized: false };
   }
   return undefined;
+}
+
+/**
+ * Derives the table name from the R2_BUCKET environment variable.
+ * Sanitizes bucket name to be a valid PostgreSQL identifier.
+ * Example: "my-bucket" -> "my_bucket_embeddings"
+ */
+export function getTableName(): string {
+  if (!R2_BUCKET) {
+    throw new Error("R2_BUCKET is not set; cannot derive table name");
+  }
+  // Sanitize bucket name: replace non-alphanumeric chars with underscores
+  const sanitized = R2_BUCKET.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
+  return `${sanitized}_embeddings`;
 }
 
 let pool: Pool | null = null;
@@ -51,15 +71,18 @@ export function getPool(): Pool {
 
 export async function ensureSchema(): Promise<void> {
   const dim = EXPECTED_VECTOR_DIM || 768;
+  const tableName = getTableName();
   // eslint-disable-next-line no-console
-  console.log(`Ensuring schema image_embeddings with vector(${dim})...`);
+  console.log(`Ensuring schema ${tableName} with vector(${dim})...`);
   const client = await getPool().connect();
   try {
     await client.query("create extension if not exists vector;");
     await client.query(
-      `create table if not exists image_embeddings (
+      `create table if not exists ${tableName} (
         id serial primary key,
         file_name text unique,
+        width integer,
+        height integer,
         embedding vector(${dim}),
         created_at timestamp default now()
       );`
@@ -68,13 +91,20 @@ export async function ensureSchema(): Promise<void> {
     await client.query(
       `do $$ begin
          if not exists (
-           select 1 from pg_indexes where schemaname = current_schema() and indexname = 'image_embeddings_file_name_key'
+           select 1 from pg_indexes where schemaname = current_schema() and indexname = '${tableName}_file_name_key'
          ) then
            begin
-             alter table image_embeddings add constraint image_embeddings_file_name_key unique (file_name);
+             alter table ${tableName} add constraint ${tableName}_file_name_key unique (file_name);
            exception when duplicate_table then null; end;
          end if;
        end $$;`
+    );
+    // Ensure width and height columns exist (migration support)
+    await client.query(
+      `alter table ${tableName} add column if not exists width integer;`
+    );
+    await client.query(
+      `alter table ${tableName} add column if not exists height integer;`
     );
   } finally {
     client.release();
@@ -82,9 +112,10 @@ export async function ensureSchema(): Promise<void> {
 }
 
 export async function getAllFileNames(): Promise<string[]> {
+  const tableName = getTableName();
   const pool = getPool();
   const { rows } = await pool.query<{ file_name: string }>(
-    "select file_name from image_embeddings;"
+    `select file_name from ${tableName};`
   );
   return rows.map((r) => r.file_name);
 }
@@ -94,7 +125,7 @@ export function toVectorParam(embedding: number[] | string): string {
   return `[${embedding.join(",")}]`;
 }
 
-// CLI support: `tsx src/db.ts ensure-schema`
+// CLI support: `tsx src/shared/db.ts ensure-schema`
 if (process.argv[2] === "ensure-schema") {
   ensureSchema()
     .then(() => {
