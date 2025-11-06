@@ -11,12 +11,12 @@
     "sync": "tsx src/syncer/sync.ts",
     "backfill-dimensions": "tsx src/syncer/backfill-dimensions.ts",
     "ensure-schema": "tsx src/shared/db.ts ensure-schema",
-    "server": "tsx src/server/server.ts",
-    "server:dev": "nodemon --watch src --ext ts --exec \"tsx src/server/server.ts\"",
+    "server": "tsx src/server.ts",
+    "server:dev": "nodemon --watch src --ext ts --exec \"tsx src/server.ts\"",
     "server:build": "tsc -p .",
-    "server:start": "node dist/server/server.js",
+    "server:start": "node dist/server.js",
     "build": "tsc -p .",
-    "start": "node dist/server/server.js"
+    "start": "node dist/server.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.614.0",

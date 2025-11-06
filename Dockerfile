@@ -45,4 +45,4 @@ COPY --from=base /app/public ./public
 COPY src/server/template.html ./dist/server/template.html
 
 EXPOSE 3000
-CMD ["node", "dist/server/server.js"]
+CMD ["node", "dist/server.js"]

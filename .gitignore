@@ -7,3 +7,4 @@ images.small/
 __pycache__/
 .DS_Store
 .vercel
+dist/
