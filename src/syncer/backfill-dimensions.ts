@@ -2,14 +2,12 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import dotenv from "dotenv";
 import { imageSize } from "image-size";
 import pLimit from "p-limit";
 import { getPool, getTableName } from "../shared/db.js";
 
-dotenv.config();
-
-const IMAGES_DIR_ENV = process.env.IMAGES_DIR || "../images";
+const BUCKET = process.env.BUCKET || "";
+const IMAGES_DIR_ENV = process.env.IMAGES_DIR || (BUCKET ? `../data/${BUCKET}/images` : "../images");
 const CONCURRENCY = Number(process.env.BACKFILL_CONCURRENCY || 8);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

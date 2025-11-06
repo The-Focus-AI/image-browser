@@ -1,11 +1,8 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import { spawn } from "child_process";
-import dotenv from "dotenv";
 import { getPool, ensureSchema, getTableName } from "../shared/db.js";
 import { ensureBucket, validateImageBaseUrl } from "../shared/r2.js";
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

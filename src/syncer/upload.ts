@@ -1,14 +1,12 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import dotenv from "dotenv";
 import { imageSize } from "image-size";
 import { getR2Client, existsInBucket, uploadFile, getBucketName, ensureBucket, validateImageBaseUrl } from "../shared/r2.js";
 import { ensureSchema, getPool, getAllFileNames, getTableName } from "../shared/db.js";
 
-dotenv.config();
-
-const IMAGES_DIR_ENV = process.env.IMAGES_DIR || "../images";
+const BUCKET = process.env.BUCKET || "";
+const IMAGES_DIR_ENV = process.env.IMAGES_DIR || (BUCKET ? `./data/${BUCKET}/images` : "../images");
 const UPLOAD_CONCURRENCY = Number(process.env.UPLOAD_CONCURRENCY || 8);
 const SKIP_R2_HEAD = String(process.env.SKIP_R2_HEAD || "").toLowerCase() === "true";
 const __filename = fileURLToPath(import.meta.url);

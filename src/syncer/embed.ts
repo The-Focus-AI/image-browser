@@ -1,9 +1,6 @@
-import dotenv from "dotenv";
 import pLimit from "p-limit";
 import { getPool, toVectorParam, getTableName } from "../shared/db.js";
 import { getImageEmbedding } from "../shared/replicate.js";
-
-dotenv.config();
 
 const EXPECTED_VECTOR_DIM = process.env.EXPECTED_VECTOR_DIM ? Number(process.env.EXPECTED_VECTOR_DIM) : 768;
 const IMAGE_BASE_URL = process.env.IMAGE_BASE_URL || "";

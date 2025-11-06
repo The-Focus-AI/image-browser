@@ -1,9 +1,6 @@
 #!/usr/bin/env tsx
-import dotenv from "dotenv";
 import { ensureSchema, getTableName } from "./db.js";
 import { ensureBucket, validateImageBaseUrl } from "./r2.js";
-
-dotenv.config();
 
 async function main(): Promise<void> {
   // eslint-disable-next-line no-console

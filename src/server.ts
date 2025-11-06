@@ -3,19 +3,17 @@ import { fileURLToPath } from "url";
 import * as fs from "fs";
 import express from "express";
 import type { Request, Response } from "express";
-import dotenv from "dotenv";
 import { Pool, QueryResult } from "pg";
 import { getTextEmbedding } from "./shared/replicate.js";
 import { getPool, toVectorParam, getTableName } from "./shared/db.js";
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT || 3000);
 const DATABASE_URL = process.env.SUPABASE_DB_URL || "";
-const IMAGES_DIR_ENV = process.env.IMAGES_DIR || "../images";
+const BUCKET = process.env.BUCKET || "";
+const IMAGES_DIR_ENV = process.env.IMAGES_DIR || (BUCKET ? `./data/${BUCKET}/images` : "../images");
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 const IMAGES_DIR = path.resolve(PROJECT_ROOT, IMAGES_DIR_ENV);
 const IMAGE_BASE_URL = process.env.IMAGE_BASE_URL;

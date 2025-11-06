@@ -8,3 +8,5 @@ __pycache__/
 .DS_Store
 .vercel
 dist/
+data/*/images/*
+!data/*/url

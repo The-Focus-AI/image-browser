@@ -1,11 +1,8 @@
 import { Pool } from "pg";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const DATABASE_URL = process.env.SUPABASE_DB_URL || "";
 const EXPECTED_VECTOR_DIM = process.env.EXPECTED_VECTOR_DIM ? Number(process.env.EXPECTED_VECTOR_DIM) : 768;
-const R2_BUCKET = process.env.R2_BUCKET || "";
+const R2_BUCKET = process.env.R2_BUCKET || process.env.BUCKET || "";
 
 if (!DATABASE_URL) {
   // eslint-disable-next-line no-console

@@ -1,7 +1,4 @@
 import Replicate from "replicate";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 type ReplicateModelId = `${string}/${string}` | `${string}/${string}:${string}`;
 
