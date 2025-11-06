@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-import sizeOf from "image-size";
+import { imageSize } from "image-size";
 import pLimit from "p-limit";
 import { getPool, getTableName } from "../shared/db.js";
 
@@ -56,7 +56,7 @@ async function main(): Promise<void> {
       }
 
       try {
-        const dimensions = sizeOf(filePath);
+        const dimensions = imageSize(filePath);
         const width = dimensions.width;
         const height = dimensions.height;
 

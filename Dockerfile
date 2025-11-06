@@ -1,7 +1,7 @@
 FROM node:25-alpine AS base
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+# Install pnpm (via npm; alpine image lacks corepack)
+RUN npm i -g pnpm@10.20.0
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml* ./
 
 # Install all dependencies (including dev for build)
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # Copy source and config
 COPY tsconfig.json ./
@@ -20,20 +20,22 @@ COPY public ./public
 RUN pnpm run build
 
 # Production stage
-FROM node:20-alpine
+FROM node:25-alpine
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+# Install pnpm (via npm; alpine image lacks corepack)
+# bash
+RUN npm i -g pnpm@10.20.0
 
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV PORT=3000
 
 # Copy package files
 COPY package.json pnpm-lock.yaml* ./
 
 # Install production dependencies only
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --no-frozen-lockfile --prod
 
 # Copy built artifacts from build stage
 COPY --from=base /app/dist ./dist

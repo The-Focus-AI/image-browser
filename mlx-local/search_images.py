@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import psycopg2
 import mlx_clip
@@ -7,7 +8,15 @@ import numpy as np
 
 # Load environment variables
 load_dotenv()
-SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL")
+# Prefer SUPABASE_DB_URL, fallback to legacy DB_URL
+SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL") or os.getenv("DB_URL")
+R2_BUCKET = os.getenv("R2_BUCKET", "")
+def derive_table_name(bucket: str) -> str:
+    if not bucket:
+        return "image_embeddings"
+    sanitized = re.sub(r"[^a-zA-Z0-9]", "_", bucket).lower()
+    return f"{sanitized}_embeddings"
+TABLE_NAME = derive_table_name(R2_BUCKET)
 
 # Initialize the mlx_clip model
 clip = mlx_clip.mlx_clip("mlx_model")
@@ -27,9 +36,9 @@ try:
     conn = psycopg2.connect(SUPABASE_DB_URL)
     cur = conn.cursor()
     # Use cosine distance for similarity
-    sql = """
+    sql = f"""
         SELECT file_name, embedding <#> %s::vector AS distance
-        FROM image_embeddings
+        FROM {TABLE_NAME}
         ORDER BY distance ASC
         LIMIT 10;
     """

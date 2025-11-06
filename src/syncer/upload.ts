@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-import sizeOf from "image-size";
+import { imageSize } from "image-size";
 import { getR2Client, existsInBucket, uploadFile, getBucketName, ensureBucket, validateImageBaseUrl } from "../shared/r2.js";
 import { ensureSchema, getPool, getAllFileNames, getTableName } from "../shared/db.js";
 
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
     let width: number | undefined;
     let height: number | undefined;
     try {
-      const dimensions = sizeOf(filePath);
+      const dimensions = imageSize(filePath);
       width = dimensions.width;
       height = dimensions.height;
     } catch (err) {

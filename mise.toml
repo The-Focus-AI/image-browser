@@ -1,8 +1,8 @@
 [tools]
-node = "latest"
+node = "25.1"
 "npm:@anthropic-ai/claude-code" = "latest"
 "npm:vercel" = "latest"
-pnpm = "latest"
+pnpm = "10.20"
 
 
 [tasks.setup-supabase-env]

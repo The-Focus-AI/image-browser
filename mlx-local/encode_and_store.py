@@ -1,4 +1,5 @@
 import os
+import re
 from supabase import create_client, Client
 import mlx_clip
 from dotenv import load_dotenv
@@ -12,7 +13,8 @@ load_dotenv()
 # Set your Supabase credentials here
 SUPABASE_URL = os.getenv("API_URL")
 SUPABASE_KEY = os.getenv("ANON_KEY")
-SUPABASE_DB_URL = os.getenv("DB_URL")
+# Prefer SUPABASE_DB_URL, fallback to legacy DB_URL
+SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL") or os.getenv("DB_URL")
 
 # Initialize Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -23,8 +25,14 @@ clip = mlx_clip.mlx_clip("mlx_model")
 # Directory containing images
 IMAGE_DIR = "../images/"
 
-# Table name in Supabase
-TABLE_NAME = "image_embeddings_clip"
+# Table name derived from R2_BUCKET when available (fallback to legacy)
+R2_BUCKET = os.getenv("R2_BUCKET", "")
+def derive_table_name(bucket: str) -> str:
+    if not bucket:
+        return "image_embeddings_clip"
+    sanitized = re.sub(r"[^a-zA-Z0-9]", "_", bucket).lower()
+    return f"{sanitized}_embeddings"
+TABLE_NAME = derive_table_name(R2_BUCKET)
 
 # --- Create table if it doesn't exist using psycopg2 ---
 # Get embedding dimension by encoding a sample image (first image in directory)
