@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -108,7 +109,9 @@ export function toVectorParam(embedding: number[] | string): string {
 }
 
 // CLI support: `tsx src/db.ts ensure-schema`
-if (process.argv[1] && process.argv[1].endsWith('db.ts') && process.argv[2] === "ensure-schema") {
+// Only run if this module is the main entry point
+const __filename = fileURLToPath(import.meta.url);
+if (process.argv[1] === __filename && process.argv[2] === "ensure-schema") {
   ensureSchema()
     .then(() => {
       // eslint-disable-next-line no-console
