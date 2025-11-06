@@ -46,19 +46,15 @@ async function getImageDimensions(filePath: string): Promise<{ width: number; he
 async function upsertImageRow(fileName: string, filePath: string): Promise<void> {
   const pool = getPool();
   const dims = await getImageDimensions(filePath);
-  if (dims) {
-    await pool.query(
-      `insert into image_embeddings (file_name, width, height) values ($1, $2, $3)
-       on conflict (file_name) do update set width = EXCLUDED.width, height = EXCLUDED.height;`,
-      [fileName, dims.width, dims.height]
-    );
-  } else {
-    await pool.query(
-      `insert into image_embeddings (file_name) values ($1)
-       on conflict (file_name) do nothing;`,
-      [fileName]
-    );
-  }
+  
+  // Single query that handles both cases - with or without dimensions
+  await pool.query(
+    `insert into image_embeddings (file_name, width, height) values ($1, $2, $3)
+     on conflict (file_name) do update set 
+       width = COALESCE(EXCLUDED.width, image_embeddings.width),
+       height = COALESCE(EXCLUDED.height, image_embeddings.height);`,
+    [fileName, dims?.width || null, dims?.height || null]
+  );
 }
 
 async function main(): Promise<void> {

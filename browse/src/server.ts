@@ -156,14 +156,19 @@ function googleLensUrl(imageUrl: string): string {
   return `${base}${encodeURIComponent(imageUrl)}`;
 }
 
+function isValidDimension(value: number | null | undefined): boolean {
+  return typeof value === 'number' && value > 0 && value < 100000 && Number.isInteger(value);
+}
+
 function renderTemplate(images: ImageData[], query: string | null): string {
   const imagesHtml = images
     .map((img) => {
       const src = resolveImageUrl(img.file_name);
       const googleLink = USING_REMOTE_IMAGES ? `<a class=\"icon-btn\" href=\"${googleLensUrl(src)}\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Search on Google\" aria-label=\"Search on Google\">G</a>` : "";
       const downloadLink = `<a class=\"icon-btn\" href=\"${src}\" download title=\"Download image\" aria-label=\"Download image\">↓</a>`;
-      // Add width and height attributes if available for better page loading
-      const dimensionAttrs = img.width && img.height ? ` width="${img.width}" height="${img.height}"` : "";
+      // Add width and height attributes if available and valid for better page loading
+      const hasValidDimensions = isValidDimension(img.width) && isValidDimension(img.height);
+      const dimensionAttrs = hasValidDimensions ? ` width="${img.width}" height="${img.height}"` : "";
       return `\n        <div class=\"masonry-item\">\n          <div class=\"image-wrap\">\n            <a class=\"image-link\" href=\"/neighbors/${encodeURIComponent(img.file_name)}\">\n              <img src=\"${src}\" alt=\"${img.file_name}\"${dimensionAttrs} />\n            </a>\n            <div class=\"overlay-actions\">\n              ${googleLink}${googleLink ? "\n              " : ""}${downloadLink}\n            </div>\n          </div>\n        </div>`;
     })
     .join("");

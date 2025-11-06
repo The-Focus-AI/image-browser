@@ -91,8 +91,7 @@ fi
 echo ""
 echo "5. Verifying TypeScript compilation..."
 cd browse
-npm run build > /dev/null 2>&1
-if [ $? -eq 0 ]; then
+if npm run build > /dev/null 2>&1; then
   echo "   ✓ browse compiles successfully"
 else
   echo "   ✗ browse compilation failed"
