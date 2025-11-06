@@ -24,6 +24,8 @@ const EXPECTED_VECTOR_DIM = process.env.EXPECTED_VECTOR_DIM
   : 0;
 const PAGE_TITLE = process.env.TITLE || "Image Search";
 const NSFW_GATE = process.env.NSFW_GATE === "true";
+const DATA_SOURCE_TEXT = process.env.DATA_SOURCE_TEXT || "";
+const DATA_SOURCE_URL = process.env.DATA_SOURCE_URL || "";
 
 // Ensure required env variables
 if (!DATABASE_URL) {
@@ -151,11 +153,19 @@ function renderTemplate(images: (string | ImageRecord)[], query: string | null):
     })
     .join("");
 
+  // Conditionally render attribution widget only if both text and URL are provided
+  const attributionWidget = DATA_SOURCE_TEXT && DATA_SOURCE_URL
+    ? `<div class="attribution-widget">
+        ${escapeHtmlAttribute(DATA_SOURCE_TEXT)} | <a href="${escapeHtmlAttribute(DATA_SOURCE_URL)}" target="_blank" rel="noopener noreferrer">info</a>
+      </div>`
+    : "";
+
   const html = TEMPLATE_SOURCE
     .replace(/{{PAGE_TITLE}}/g, PAGE_TITLE)
     .replace(/{{QUERY_VALUE}}/g, escapeHtmlAttribute(query ? String(query) : ""))
     .replace(/{{IMAGES_HTML}}/g, imagesHtml)
-    .replace(/{{NSFW_GATE}}/g, NSFW_GATE ? "true" : "false");
+    .replace(/{{NSFW_GATE}}/g, NSFW_GATE ? "true" : "false")
+    .replace(/{{ATTRIBUTION_WIDGET}}/g, attributionWidget);
 
   return html;
 }
