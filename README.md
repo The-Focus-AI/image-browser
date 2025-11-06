@@ -4,6 +4,9 @@ This repo supports two complementary systems for image search and browsing:
 
 - Local (MLX on Apple Silicon): run a lightweight Flask app that queries your Supabase Postgres with CLIP embeddings using MLX locally. Directory: `mlx-local/`.
 - Cloud loader and embedding backfill (R2 + Replicate): upload images in `images/` to Cloudflare R2 and backfill missing embeddings via Replicate. Directory: `loader/`.
+- Cloud browser: web interface for searching and browsing images. Directory: `browse/`.
+
+The `loader` and `browse` applications share common code through the `shared/` library, which provides database operations and Replicate API interactions.
 
 ## Basic workflow
 
@@ -14,7 +17,7 @@ This repo supports two complementary systems for image search and browsing:
    mise run sync
    ```
 
-This scans `images/`, uploads new files to R2, and ensures a row exists in `image_embeddings`. A separate worker can backfill embeddings via Replicate.
+This scans `images/`, uploads new files to R2, extracts image dimensions (width/height), and ensures a row exists in `image_embeddings`. A separate worker can backfill embeddings via Replicate.
 
 ## Local MLX browser (optional)
 
@@ -28,15 +31,19 @@ mise setup-supabase-env
 mise run-mlx-local
 ```
 
+## Architecture
+
+The project uses a shared library (`shared/`) that contains common code for database operations and Replicate API interactions. Both `loader` and `browse` use this shared library to ensure consistency.
+
 ## Cloud loader details
 
 See `loader/README.md` for full setup. In short, configure `loader/.env`, then:
 
 ```bash
-# ensure DB schema exists
+# ensure DB schema exists (includes width/height columns)
 (cd loader && npm run ensure-schema)
 
-# upload images and upsert DB rows (sync is a convenience wrapper)
+# upload images, extract dimensions, and upsert DB rows (sync is a convenience wrapper)
 mise sync
 
 # backfill missing embeddings via Replicate
