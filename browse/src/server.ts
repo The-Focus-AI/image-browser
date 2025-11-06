@@ -5,7 +5,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import dotenv from "dotenv";
 import { Pool, QueryResult } from "pg";
-import { getTextEmbedding } from "./replicate.js";
+import { getTextEmbedding, toVectorParam } from "image-browser-shared";
 
 dotenv.config();
 
@@ -105,25 +105,31 @@ function listLocalImages(limit = 60): string[] {
   }
 }
 
-async function listDbImages(limit = 60): Promise<string[]> {
+interface ImageData {
+  file_name: string;
+  width?: number;
+  height?: number;
+}
+
+async function listDbImages(limit = 60): Promise<ImageData[]> {
   if (!pool) return [];
-  const { rows }: QueryResult<{ file_name: string }> = await pool.query(
-    `SELECT file_name
+  const { rows }: QueryResult<ImageData> = await pool.query(
+    `SELECT file_name, width, height
      FROM image_embeddings
      WHERE embedding IS NOT NULL
      ORDER BY created_at DESC
      LIMIT $1;`,
     [limit]
   );
-  return rows.map((r) => r.file_name);
+  return rows;
 }
 
-// getTextEmbedding is imported from ./replicate
-
-function toVectorParam(embedding: number[] | string): string {
-  if (typeof embedding === "string") return embedding; // expected like "[0.1,0.2,...]"
-  return `[${embedding.join(",")}]`;
+function listLocalImagesAsData(limit = 60): ImageData[] {
+  const files = listLocalImages(limit);
+  return files.map(file_name => ({ file_name }));
 }
+
+// getTextEmbedding and toVectorParam are imported from shared library
 
 // Load external HTML template and provide a renderer
 const TEMPLATE_PATH = path.join(__dirname, "template.html");
@@ -150,13 +156,15 @@ function googleLensUrl(imageUrl: string): string {
   return `${base}${encodeURIComponent(imageUrl)}`;
 }
 
-function renderTemplate(images: string[], query: string | null): string {
+function renderTemplate(images: ImageData[], query: string | null): string {
   const imagesHtml = images
-    .map((file) => {
-      const src = resolveImageUrl(file);
+    .map((img) => {
+      const src = resolveImageUrl(img.file_name);
       const googleLink = USING_REMOTE_IMAGES ? `<a class=\"icon-btn\" href=\"${googleLensUrl(src)}\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Search on Google\" aria-label=\"Search on Google\">G</a>` : "";
       const downloadLink = `<a class=\"icon-btn\" href=\"${src}\" download title=\"Download image\" aria-label=\"Download image\">↓</a>`;
-      return `\n        <div class=\"masonry-item\">\n          <div class=\"image-wrap\">\n            <a class=\"image-link\" href=\"/neighbors/${encodeURIComponent(file)}\">\n              <img src=\"${src}\" alt=\"${file}\" />\n            </a>\n            <div class=\"overlay-actions\">\n              ${googleLink}${googleLink ? "\n              " : ""}${downloadLink}\n            </div>\n          </div>\n        </div>`;
+      // Add width and height attributes if available for better page loading
+      const dimensionAttrs = img.width && img.height ? ` width="${img.width}" height="${img.height}"` : "";
+      return `\n        <div class=\"masonry-item\">\n          <div class=\"image-wrap\">\n            <a class=\"image-link\" href=\"/neighbors/${encodeURIComponent(img.file_name)}\">\n              <img src=\"${src}\" alt=\"${img.file_name}\"${dimensionAttrs} />\n            </a>\n            <div class=\"overlay-actions\">\n              ${googleLink}${googleLink ? "\n              " : ""}${downloadLink}\n            </div>\n          </div>\n        </div>`;
     })
     .join("");
 
@@ -204,24 +212,24 @@ app.get("/", async (req: Request, res: Response) => {
       }
       const vec = toVectorParam(embedding);
       if (!pool) throw new Error("Database not configured");
-      const { rows }: QueryResult<{ file_name: string; distance: number }> = await pool.query(
-        `SELECT file_name, embedding <#> $1::vector AS distance
+      const { rows }: QueryResult<ImageData & { distance: number }> = await pool.query(
+        `SELECT file_name, width, height, embedding <#> $1::vector AS distance
          FROM image_embeddings
          WHERE embedding IS NOT NULL
          ORDER BY distance ASC
          LIMIT 30;`,
         [vec]
       );
-      const images = rows.map((r) => r.file_name);
+      const images: ImageData[] = rows.map((r) => ({ file_name: r.file_name, width: r.width, height: r.height }));
       res.type("html").send(renderTemplate(images, q));
       return;
     }
     // No query: list from DB if available, else fallback to local dir
-    let images: string[] = [];
+    let images: ImageData[] = [];
     if (pool) {
       images = await listDbImages(60);
     } else {
-      images = listLocalImages(60);
+      images = listLocalImagesAsData(60);
     }
     res.type("html").send(renderTemplate(images, null));
   } catch (err) {
@@ -235,9 +243,9 @@ app.get("/neighbors/:file_name", async (req: Request, res: Response) => {
   const fileName = req.params.file_name;
   try {
     if (!pool) throw new Error("Database not configured");
-    // Fetch embedding for the selected image as text for reuse
-    const { rows: embRows }: QueryResult<{ embedding_text: string }> = await pool.query(
-      `SELECT embedding::text AS embedding_text
+    // Fetch embedding and dimensions for the selected image
+    const { rows: embRows }: QueryResult<{ embedding_text: string; width?: number; height?: number }> = await pool.query(
+      `SELECT embedding::text AS embedding_text, width, height
        FROM image_embeddings
        WHERE file_name = $1 AND embedding IS NOT NULL
        LIMIT 1;`,
@@ -248,15 +256,21 @@ app.get("/neighbors/:file_name", async (req: Request, res: Response) => {
       return;
     }
     const embeddingText = embRows[0].embedding_text;
-    const { rows }: QueryResult<{ file_name: string; distance: number }> = await pool.query(
-      `SELECT file_name, embedding <#> $1::vector AS distance
+    const selectedImage: ImageData = { 
+      file_name: fileName, 
+      width: embRows[0].width, 
+      height: embRows[0].height 
+    };
+    const { rows }: QueryResult<ImageData & { distance: number }> = await pool.query(
+      `SELECT file_name, width, height, embedding <#> $1::vector AS distance
        FROM image_embeddings
        WHERE file_name != $2 AND embedding IS NOT NULL
        ORDER BY distance ASC
        LIMIT 30;`,
       [embeddingText, fileName]
     );
-    const images = [fileName, ...rows.map((r) => r.file_name)];
+    const similarImages: ImageData[] = rows.map((r) => ({ file_name: r.file_name, width: r.width, height: r.height }));
+    const images = [selectedImage, ...similarImages];
     res.type("html").send(renderTemplate(images, null));
   } catch (err) {
     // eslint-disable-next-line no-console

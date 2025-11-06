@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import sharp from "sharp";
 import { getR2Client, existsInBucket, uploadFile, toKey } from "./r2.js";
 import { ensureSchema, getPool, getAllFileNames } from "./db.js";
 
@@ -29,13 +30,35 @@ function listLocalImages(): string[] {
   }
 }
 
-async function upsertImageRow(fileName: string): Promise<void> {
+async function getImageDimensions(filePath: string): Promise<{ width: number; height: number } | null> {
+  try {
+    const metadata = await sharp(filePath).metadata();
+    if (metadata.width && metadata.height) {
+      return { width: metadata.width, height: metadata.height };
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`Failed to extract dimensions for ${filePath}:`, err);
+  }
+  return null;
+}
+
+async function upsertImageRow(fileName: string, filePath: string): Promise<void> {
   const pool = getPool();
-  await pool.query(
-    `insert into image_embeddings (file_name) values ($1)
-     on conflict (file_name) do nothing;`,
-    [fileName]
-  );
+  const dims = await getImageDimensions(filePath);
+  if (dims) {
+    await pool.query(
+      `insert into image_embeddings (file_name, width, height) values ($1, $2, $3)
+       on conflict (file_name) do update set width = EXCLUDED.width, height = EXCLUDED.height;`,
+      [fileName, dims.width, dims.height]
+    );
+  } else {
+    await pool.query(
+      `insert into image_embeddings (file_name) values ($1)
+       on conflict (file_name) do nothing;`,
+      [fileName]
+    );
+  }
 }
 
 async function main(): Promise<void> {
@@ -90,7 +113,7 @@ async function main(): Promise<void> {
       await uploadFile(s3, filePath, key);
       // eslint-disable-next-line no-console
       console.log(`Uploaded ${fileName}`);
-      await upsertImageRow(fileName);
+      await upsertImageRow(fileName, filePath);
       return;
     }
 
@@ -105,7 +128,7 @@ async function main(): Promise<void> {
       // eslint-disable-next-line no-console
       console.log(`Already exists in bucket, skipping upload: ${fileName}`);
     }
-    await upsertImageRow(fileName);
+    await upsertImageRow(fileName, filePath);
   });
   // eslint-disable-next-line no-console
   console.log("Upload + DB upsert complete. Closing DB pool...");

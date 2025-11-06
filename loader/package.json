@@ -6,16 +6,18 @@
   "scripts": {
     "upload": "tsx src/upload_r2.ts",
     "embed": "tsx src/embed_missing.ts",
-    "ensure-schema": "tsx src/db.ts ensure-schema",
+    "ensure-schema": "tsx ../shared/src/db.ts ensure-schema",
     "sync": "tsx src/sync.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.614.0",
     "dotenv": "^16.4.5",
+    "image-browser-shared": "file:../shared",
     "mime": "^3.0.0",
     "p-limit": "^5.0.0",
     "pg": "^8.12.0",
-    "replicate": "^0.31.1"
+    "replicate": "^0.31.1",
+    "sharp": "^0.33.5"
   },
   "devDependencies": {
     "@types/node": "^22.8.4",
