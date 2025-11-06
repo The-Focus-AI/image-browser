@@ -23,6 +23,7 @@ const EXPECTED_VECTOR_DIM = process.env.EXPECTED_VECTOR_DIM
   ? Number(process.env.EXPECTED_VECTOR_DIM)
   : 0;
 const PAGE_TITLE = process.env.TITLE || "Image Search";
+const NSFW_GATE = process.env.NSFW_GATE === "true";
 
 // Ensure required env variables
 if (!DATABASE_URL) {
@@ -153,7 +154,8 @@ function renderTemplate(images: (string | ImageRecord)[], query: string | null):
   const html = TEMPLATE_SOURCE
     .replace(/{{PAGE_TITLE}}/g, PAGE_TITLE)
     .replace(/{{QUERY_VALUE}}/g, escapeHtmlAttribute(query ? String(query) : ""))
-    .replace(/{{IMAGES_HTML}}/g, imagesHtml);
+    .replace(/{{IMAGES_HTML}}/g, imagesHtml)
+    .replace(/{{NSFW_GATE}}/g, NSFW_GATE ? "true" : "false");
 
   return html;
 }

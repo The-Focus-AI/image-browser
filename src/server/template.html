@@ -39,6 +39,14 @@
     .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.8); display: none; align-items: center; justify-content: center; z-index: 2000; }
     .loading-spinner { width: 48px; height: 48px; border: 4px solid #e6e6e6; border-top-color: #0a84ff; border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* NSFW Warning Overlay */
+    .nsfw-warning-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 3000; backdrop-filter: blur(8px); }
+    .nsfw-warning-content { background: #fff; border-radius: 12px; padding: 40px; max-width: 500px; margin: 0 20px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.4); }
+    .nsfw-warning-content h2 { margin: 0 0 20px 0; font-size: 28px; color: #d32f2f; }
+    .nsfw-warning-content p { margin: 12px 0; color: #555; line-height: 1.6; font-size: 16px; }
+    .nsfw-button { padding: 14px 40px; font-size: 16px; background: #007bff; color: #fff; border: none; border-radius: 8px; cursor: pointer; margin-top: 24px; font-weight: 600; transition: background 0.2s; }
+    .nsfw-button:hover { background: #0056b3; }
   </style>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -67,6 +75,17 @@
           <p><strong>Progress</strong>: <span id="statPercent">0%</span></p>
           <p>This shows how many images have embeddings stored. Data is fetched from <code>/stats</code>.</p>
         </div>
+      </div>
+    </div>
+
+    <!-- NSFW Warning Overlay -->
+    <div class="nsfw-warning-overlay" id="nsfwWarning" role="dialog" aria-modal="true" aria-labelledby="nsfwTitle">
+      <div class="nsfw-warning-content">
+        <h2 id="nsfwTitle">⚠️ Content Warning</h2>
+        <p><strong>These are unfiltered images from the internet.</strong></p>
+        <p>This collection may contain adult or explicit content not suitable for all audiences.</p>
+        <p>Children are discouraged from viewing.</p>
+        <button id="nsfwAcknowledge" class="nsfw-button">I Understand</button>
       </div>
     </div>
 
@@ -156,6 +175,39 @@
         const clear = function() { if (t) { clearTimeout(t); t = null; } };
         window.addEventListener('beforeunload', clear);
         window.addEventListener('pagehide', clear);
+      })();
+    </script>
+
+    <script>
+      // NSFW Gate - Show warning overlay if enabled
+      (function() {
+        const NSFW_GATE = {{NSFW_GATE}};
+        if (!NSFW_GATE) return;
+
+        const overlay = document.getElementById('nsfwWarning');
+        const button = document.getElementById('nsfwAcknowledge');
+
+        if (!overlay || !button) return;
+
+        // Check if user has acknowledged before (stored in localStorage)
+        const hasAcknowledged = localStorage.getItem('nsfwGateAcknowledged') === 'true';
+
+        if (!hasAcknowledged) {
+          overlay.style.display = 'flex';
+        }
+
+        // Handle acknowledgment
+        button.addEventListener('click', function() {
+          localStorage.setItem('nsfwGateAcknowledged', 'true');
+          overlay.style.display = 'none';
+        });
+
+        // Allow ESC key to close (but don't save acknowledgment)
+        window.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape' && overlay.style.display === 'flex') {
+            overlay.style.display = 'none';
+          }
+        });
       })();
     </script>
 
