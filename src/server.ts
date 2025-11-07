@@ -237,66 +237,106 @@ app.get("/neighbors/:file_name", async (req: Request, res: Response) => {
     const t0 = Date.now();
     // eslint-disable-next-line no-console
     console.log(`[neighbors] start file=${fileName}`);
-    // Fetch embedding and dimensions for the selected image
-    const { rows: embRows }: QueryResult<{ embedding_text: string; width?: number; height?: number }> = await pool.query(
-      `SELECT embedding::text AS embedding_text, width, height
-       FROM ${tableName}
-       WHERE file_name = $1 AND embedding IS NOT NULL
-       LIMIT 1;`,
-      [fileName]
-    );
-    // eslint-disable-next-line no-console
-    console.log(`[neighbors] fetched base embedding in ${Date.now() - t0}ms (found=${embRows.length})`);
-    if (!embRows.length) {
-      res.type("html").send(renderTemplate([], null));
-      return;
+    // Per-request planner toggles via query params
+    const forceIndex =
+      String(req.query.forceIndex || "").toLowerCase() === "1" ||
+      String(req.query.forceIndex || "").toLowerCase() === "true";
+    const noParallel =
+      String(req.query.noParallel || "").toLowerCase() === "1" ||
+      String(req.query.noParallel || "").toLowerCase() === "true";
+
+    const client = await pool.connect();
+    let embRows: { embedding_text: string; width?: number; height?: number }[] = [];
+    let rows: (ImageRecord & { distance: number })[] = [];
+    try {
+      await client.query("BEGIN");
+      if (noParallel) {
+        try {
+          await client.query("SET LOCAL max_parallel_workers_per_gather = 0;");
+          // eslint-disable-next-line no-console
+          console.log("[neighbors] SET LOCAL max_parallel_workers_per_gather = 0");
+        } catch { /* ignore */ }
+      }
+      if (forceIndex) {
+        try {
+          await client.query("SET LOCAL enable_seqscan = off;");
+          await client.query("SET LOCAL enable_bitmapscan = off;");
+          await client.query("SET LOCAL enable_indexscan = on;");
+          // eslint-disable-next-line no-console
+          console.log("[neighbors] Forced index usage (seqscan off, bitmap off, index on)");
+        } catch { /* ignore */ }
+      }
+      // Fetch embedding and dimensions for the selected image
+      const embRes = await client.query<{ embedding_text: string; width?: number; height?: number }>(
+        `SELECT embedding::text AS embedding_text, width, height
+         FROM ${tableName}
+         WHERE file_name = $1 AND embedding IS NOT NULL
+         LIMIT 1;`,
+        [fileName]
+      );
+      embRows = embRes.rows;
+      // eslint-disable-next-line no-console
+      console.log(`[neighbors] fetched base embedding in ${Date.now() - t0}ms (found=${embRows.length})`);
+      if (!embRows.length) {
+        await client.query("COMMIT");
+        client.release();
+        res.type("html").send(renderTemplate([], null));
+        return;
+      }
+      const embeddingText = embRows[0].embedding_text;
+      const t1 = Date.now();
+      // eslint-disable-next-line no-console
+      console.log("[neighbors] querying nearest neighbors ...");
+      // Fetch N+1 then filter out the selected file in application layer
+      const fetchLimit = 31; // target 30 after filtering
+      const nnRes = await client.query<ImageRecord & { distance: number }>(
+        `SELECT file_name, width, height, embedding <#> $1::vector AS distance
+         FROM ${tableName}
+         WHERE embedding IS NOT NULL
+         ORDER BY distance ASC
+         LIMIT $2;`,
+        [embeddingText, fetchLimit]
+      );
+      rows = nnRes.rows;
+      // eslint-disable-next-line no-console
+      console.log(`[neighbors] neighbor query completed in ${Date.now() - t1}ms (rows=${rows.length})`);
+
+      // Optional: per-request explain via query param (?explain=1&analyze=1)
+      const explainRequested = String(req.query.explain || "").toLowerCase() === "1" || String(req.query.explain || "").toLowerCase() === "true";
+      const analyzeRequested = String(req.query.analyze || "").toLowerCase() === "1" || String(req.query.analyze || "").toLowerCase() === "true";
+      if (process.env.LOG_EXPLAIN === "true" || explainRequested) {
+        try {
+          const explainAnalyze = process.env.LOG_EXPLAIN_ANALYZE === "true" || analyzeRequested;
+          const mode = explainAnalyze ? "ANALYZE, BUFFERS" : "";
+          const { rows: plan } = await client.query<{ "QUERY PLAN": string }>(
+            `EXPLAIN (${mode}) SELECT file_name, width, height, embedding <#> $1::vector AS distance
+             FROM ${tableName}
+             WHERE embedding IS NOT NULL
+             ORDER BY distance ASC
+             LIMIT $2;`,
+            [embeddingText, fetchLimit]
+          );
+          // eslint-disable-next-line no-console
+          console.log("[neighbors] EXPLAIN plan:");
+          for (const r of plan) console.log(r["QUERY PLAN"]);
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn("[neighbors] EXPLAIN failed:", e);
+        }
+      }
+      await client.query("COMMIT");
+    } catch (e) {
+      try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+      client.release();
+      throw e;
     }
+    client.release();
     const embeddingText = embRows[0].embedding_text;
     const selectedImageRecord: ImageRecord = {
       file_name: fileName,
       width: embRows[0].width,
       height: embRows[0].height
     };
-    const t1 = Date.now();
-    // eslint-disable-next-line no-console
-    console.log("[neighbors] querying nearest neighbors ...");
-    // Fetch N+1 then filter out the selected file in application layer
-    const fetchLimit = 31; // target 30 after filtering
-    const { rows }: QueryResult<ImageRecord & { distance: number }> = await pool.query(
-      `SELECT file_name, width, height, embedding <#> $1::vector AS distance
-       FROM ${tableName}
-       WHERE embedding IS NOT NULL
-       ORDER BY distance ASC
-       LIMIT $2;`,
-      [embeddingText, fetchLimit]
-    );
-    // eslint-disable-next-line no-console
-    console.log(`[neighbors] neighbor query completed in ${Date.now() - t1}ms (rows=${rows.length})`);
-
-    // Optional: planner insight logs (disabled by default)
-    // Optional: per-request explain via query param (?explain=1&analyze=1)
-    const explainRequested = String(req.query.explain || "").toLowerCase() === "1" || String(req.query.explain || "").toLowerCase() === "true";
-    const analyzeRequested = String(req.query.analyze || "").toLowerCase() === "1" || String(req.query.analyze || "").toLowerCase() === "true";
-    if (process.env.LOG_EXPLAIN === "true" || explainRequested) {
-      try {
-        const explainAnalyze = process.env.LOG_EXPLAIN_ANALYZE === "true" || analyzeRequested;
-        const mode = explainAnalyze ? "ANALYZE, BUFFERS" : "";
-        const { rows: plan } = await pool.query<{ "QUERY PLAN": string }>(
-          `EXPLAIN (${mode}) SELECT file_name, width, height, embedding <#> $1::vector AS distance
-           FROM ${tableName}
-           WHERE embedding IS NOT NULL
-           ORDER BY distance ASC
-           LIMIT $2;`,
-          [embeddingText, fetchLimit]
-        );
-        // eslint-disable-next-line no-console
-        console.log("[neighbors] EXPLAIN plan:");
-        for (const r of plan) console.log(r["QUERY PLAN"]);
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn("[neighbors] EXPLAIN failed:", e);
-      }
-    }
     // Filter out the selected file and clamp to 30
     const neighbors = rows.filter((r) => r.file_name !== fileName).slice(0, 30);
     const images = [selectedImageRecord, ...neighbors];
