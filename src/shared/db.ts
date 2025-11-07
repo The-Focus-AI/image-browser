@@ -158,49 +158,87 @@ export async function ensureSchema(): Promise<void> {
     console.log(`[ensureSchema] height ensured in ${timeSince(t)}`);
 
     // Ensure ANN index for inner product (<#>) searches on embedding
-    // Prefer HNSW; fallback to IVFFlat if HNSW not available
+    // Prefer HNSW when available; otherwise use IVFFlat
+    // First, detect if a suitable index already exists
     try {
-      t = Date.now();
-      // eslint-disable-next-line no-console
-      console.log("[ensureSchema] creating HNSW index (vector_ip_ops, partial not null) ...");
-      await client.query(
-        `create index concurrently if not exists ${tableName}_embedding_ip_hnsw_idx
-         on ${tableName}
-         using hnsw (embedding vector_ip_ops)
-         where embedding is not null;`
+      const tChk = Date.now();
+      const { rows: idxRows } = await client.query<{ indexname: string; indexdef: string }>(
+        `select indexname, indexdef
+         from pg_indexes
+         where schemaname = current_schema() and tablename = $1;`,
+        [tableName]
       );
+      const indexDefs = idxRows.map((r) => r.indexdef.toLowerCase());
+      const hasHnswIp = indexDefs.some((d) => d.includes(" using hnsw ") && d.includes("vector_ip_ops") && d.includes("(embedding"));
+      const hasIvfIp = indexDefs.some((d) => d.includes(" using ivfflat ") && d.includes("vector_ip_ops") && d.includes("(embedding"));
       // eslint-disable-next-line no-console
-      console.log(`Ensured HNSW index ${tableName}_embedding_ip_hnsw_idx in ${timeSince(t)}`);
+      console.log(`[ensureSchema] index check in ${timeSince(tChk)} hnsw_ip=${hasHnswIp} ivfflat_ip=${hasIvfIp}`);
+
+      // Check pgvector version to decide if HNSW is supported
+      let hnswSupported = true;
+      try {
+        const { rows: verRows } = await client.query<{ extversion: string }>(
+          `select extversion from pg_extension where extname = 'vector';`
+        );
+        const ver = verRows[0]?.extversion || "0.5.0";
+        // crude parse: treat versions starting with 0.5 or higher as supporting HNSW
+        const majorMinor = ver.split(".").slice(0, 2).map((s) => Number(s));
+        hnswSupported = (majorMinor[0] > 0) || (majorMinor[0] === 0 && (majorMinor[1] || 0) >= 5);
+        // eslint-disable-next-line no-console
+        console.log(`[ensureSchema] pgvector version=${ver} hnswSupported=${hnswSupported}`);
+      } catch {
+        hnswSupported = true; // assume supported if we cannot detect
+      }
+
+      if (!hasHnswIp && hnswSupported) {
+        // Attempt to create HNSW index
+        t = Date.now();
+        // eslint-disable-next-line no-console
+        console.log("[ensureSchema] creating HNSW index (vector_ip_ops, partial not null) ...");
+        await client.query(
+          `create index concurrently if not exists ${tableName}_embedding_ip_hnsw_idx
+           on ${tableName}
+           using hnsw (embedding vector_ip_ops)
+           where embedding is not null;`
+        );
+        // eslint-disable-next-line no-console
+        console.log(`Ensured HNSW index ${tableName}_embedding_ip_hnsw_idx in ${timeSince(t)}`);
+      } else if (!hasIvfIp) {
+        // HNSW present or not supported; ensure an IVFFlat as fallback if missing
+        let lists = 100;
+        try {
+          const tEst = Date.now();
+          const { rows } = await client.query<{ reltuples: number }>(
+            `select coalesce(reltuples::bigint, 0) as reltuples from pg_class where oid = $1::regclass;`,
+            [tableName]
+          );
+          const est = Number(rows?.[0]?.reltuples || 0);
+          const suggested = Math.floor(Math.sqrt(Math.max(1, est)));
+          lists = Math.max(100, Math.min(10000, suggested));
+          // eslint-disable-next-line no-console
+          console.log(`[ensureSchema] reltuples estimate=${est}, suggested lists=${suggested}, chosen lists=${lists} (computed in ${timeSince(tEst)})`);
+        } catch {
+          // keep default lists
+        }
+        const tIvf = Date.now();
+        // eslint-disable-next-line no-console
+        console.log("[ensureSchema] creating IVFFlat index (vector_ip_ops, partial not null) ...");
+        await client.query(
+          `create index concurrently if not exists ${tableName}_embedding_ip_ivfflat_idx
+           on ${tableName}
+           using ivfflat (embedding vector_ip_ops)
+           with (lists = ${lists})
+           where embedding is not null;`
+        );
+        // eslint-disable-next-line no-console
+        console.log(`Ensured IVFFlat index ${tableName}_embedding_ip_ivfflat_idx with lists=${lists} in ${timeSince(tIvf)}`);
+      } else {
+        // eslint-disable-next-line no-console
+        console.log("[ensureSchema] suitable ANN index already present; skipping creation");
+      }
     } catch (err: any) {
       // eslint-disable-next-line no-console
-      console.warn("HNSW index creation failed; falling back to IVFFlat:", err?.message || err);
-      let lists = 100;
-      try {
-        const tEst = Date.now();
-        const { rows } = await client.query<{ reltuples: number }>(
-          `select coalesce(reltuples::bigint, 0) as reltuples from pg_class where oid = $1::regclass;`,
-          [tableName]
-        );
-        const est = Number(rows?.[0]?.reltuples || 0);
-        const suggested = Math.floor(Math.sqrt(Math.max(1, est)));
-        lists = Math.max(100, Math.min(10000, suggested));
-        // eslint-disable-next-line no-console
-        console.log(`[ensureSchema] reltuples estimate=${est}, suggested lists=${suggested}, chosen lists=${lists} (computed in ${timeSince(tEst)})`);
-      } catch {
-        // keep default lists
-      }
-      const tIvf = Date.now();
-      // eslint-disable-next-line no-console
-      console.log("[ensureSchema] creating IVFFlat index (vector_ip_ops, partial not null) ...");
-      await client.query(
-        `create index concurrently if not exists ${tableName}_embedding_ip_ivfflat_idx
-         on ${tableName}
-         using ivfflat (embedding vector_ip_ops)
-         with (lists = ${lists})
-         where embedding is not null;`
-      );
-      // eslint-disable-next-line no-console
-      console.log(`Ensured IVFFlat index ${tableName}_embedding_ip_ivfflat_idx with lists=${lists} in ${timeSince(tIvf)}`);
+      console.warn("[ensureSchema] ANN index ensure failed:", err?.message || err);
     }
     // Ensure fast list-by-recency for default page load (DB path)
     try {
