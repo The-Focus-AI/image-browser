@@ -62,6 +62,26 @@ export function getPool(): Pool {
       // eslint-disable-next-line no-console
       console.warn("pg pool error (ignored)", err);
     });
+    // Set per-connection tuning for pgvector ANN search
+    const ivfProbes = process.env.IVFFLAT_PROBES ? Number(process.env.IVFFLAT_PROBES) : 10;
+    const hnswEfSearch = process.env.HNSW_EF_SEARCH ? Number(process.env.HNSW_EF_SEARCH) : 40;
+    pool.on("connect", async (client) => {
+      try {
+        await client.query(`set application_name = 'image-browser';`);
+      } catch {
+        // ignore
+      }
+      try {
+        await client.query(`set ivfflat.probes = ${Math.max(1, ivfProbes)};`);
+      } catch {
+        // ignore if ivfflat not available
+      }
+      try {
+        await client.query(`set hnsw.ef_search = ${Math.max(1, hnswEfSearch)};`);
+      } catch {
+        // ignore if hnsw not available
+      }
+    });
   }
   return pool;
 }
@@ -71,9 +91,22 @@ export async function ensureSchema(): Promise<void> {
   const tableName = getTableName();
   // eslint-disable-next-line no-console
   console.log(`Ensuring schema ${tableName} with vector(${dim})...`);
+  const startAll = Date.now();
+  const timeSince = (t: number) => `${Date.now() - t}ms`;
   const client = await getPool().connect();
+  // eslint-disable-next-line no-console
+  console.log(`DB connection acquired in ${timeSince(startAll)}`);
   try {
+    let t = Date.now();
+    // eslint-disable-next-line no-console
+    console.log("[ensureSchema] create extension vector ...");
     await client.query("create extension if not exists vector;");
+    // eslint-disable-next-line no-console
+    console.log(`[ensureSchema] extension ensured in ${timeSince(t)}`);
+
+    t = Date.now();
+    // eslint-disable-next-line no-console
+    console.log("[ensureSchema] create table if not exists ...");
     await client.query(
       `create table if not exists ${tableName} (
         id serial primary key,
@@ -84,7 +117,13 @@ export async function ensureSchema(): Promise<void> {
         created_at timestamp default now()
       );`
     );
+    // eslint-disable-next-line no-console
+    console.log(`[ensureSchema] table ensured in ${timeSince(t)}`);
+
     // Ensure unique index on file_name (in case of legacy table without constraint)
+    t = Date.now();
+    // eslint-disable-next-line no-console
+    console.log("[ensureSchema] ensure unique(file_name) ...");
     await client.query(
       `do $$ begin
          if not exists (
@@ -96,15 +135,105 @@ export async function ensureSchema(): Promise<void> {
          end if;
        end $$;`
     );
+    // eslint-disable-next-line no-console
+    console.log(`[ensureSchema] unique(file_name) ensured in ${timeSince(t)}`);
+
     // Ensure width and height columns exist (migration support)
+    t = Date.now();
+    // eslint-disable-next-line no-console
+    console.log("[ensureSchema] add column width if not exists ...");
     await client.query(
       `alter table ${tableName} add column if not exists width integer;`
     );
+    // eslint-disable-next-line no-console
+    console.log(`[ensureSchema] width ensured in ${timeSince(t)}`);
+
+    t = Date.now();
+    // eslint-disable-next-line no-console
+    console.log("[ensureSchema] add column height if not exists ...");
     await client.query(
       `alter table ${tableName} add column if not exists height integer;`
     );
+    // eslint-disable-next-line no-console
+    console.log(`[ensureSchema] height ensured in ${timeSince(t)}`);
+
+    // Ensure ANN index for inner product (<#>) searches on embedding
+    // Prefer HNSW; fallback to IVFFlat if HNSW not available
+    try {
+      t = Date.now();
+      // eslint-disable-next-line no-console
+      console.log("[ensureSchema] creating HNSW index (vector_ip_ops, partial not null) ...");
+      await client.query(
+        `create index concurrently if not exists ${tableName}_embedding_ip_hnsw_idx
+         on ${tableName}
+         using hnsw (embedding vector_ip_ops)
+         where embedding is not null;`
+      );
+      // eslint-disable-next-line no-console
+      console.log(`Ensured HNSW index ${tableName}_embedding_ip_hnsw_idx in ${timeSince(t)}`);
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.warn("HNSW index creation failed; falling back to IVFFlat:", err?.message || err);
+      let lists = 100;
+      try {
+        const tEst = Date.now();
+        const { rows } = await client.query<{ reltuples: number }>(
+          `select coalesce(reltuples::bigint, 0) as reltuples from pg_class where oid = $1::regclass;`,
+          [tableName]
+        );
+        const est = Number(rows?.[0]?.reltuples || 0);
+        const suggested = Math.floor(Math.sqrt(Math.max(1, est)));
+        lists = Math.max(100, Math.min(10000, suggested));
+        // eslint-disable-next-line no-console
+        console.log(`[ensureSchema] reltuples estimate=${est}, suggested lists=${suggested}, chosen lists=${lists} (computed in ${timeSince(tEst)})`);
+      } catch {
+        // keep default lists
+      }
+      const tIvf = Date.now();
+      // eslint-disable-next-line no-console
+      console.log("[ensureSchema] creating IVFFlat index (vector_ip_ops, partial not null) ...");
+      await client.query(
+        `create index concurrently if not exists ${tableName}_embedding_ip_ivfflat_idx
+         on ${tableName}
+         using ivfflat (embedding vector_ip_ops)
+         with (lists = ${lists})
+         where embedding is not null;`
+      );
+      // eslint-disable-next-line no-console
+      console.log(`Ensured IVFFlat index ${tableName}_embedding_ip_ivfflat_idx with lists=${lists} in ${timeSince(tIvf)}`);
+    }
+    // Ensure fast list-by-recency for default page load (DB path)
+    try {
+      const tIdx = Date.now();
+      // eslint-disable-next-line no-console
+      console.log("[ensureSchema] creating btree index on created_at (partial where embedding not null) ...");
+      await client.query(
+        `create index concurrently if not exists ${tableName}_created_at_desc_idx
+         on ${tableName} (created_at desc)
+         where embedding is not null;`
+      );
+      // eslint-disable-next-line no-console
+      console.log(`[ensureSchema] created_at index ensured in ${timeSince(tIdx)}`);
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.warn("[ensureSchema] created_at index creation skipped/failed:", err?.message || err);
+    }
+    // Run ANALYZE so planner picks up stats & new indexes
+    try {
+      const tAnalyze = Date.now();
+      // eslint-disable-next-line no-console
+      console.log("[ensureSchema] running ANALYZE ...");
+      await client.query(`analyze ${tableName};`);
+      // eslint-disable-next-line no-console
+      console.log(`[ensureSchema] ANALYZE completed in ${timeSince(tAnalyze)}`);
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.warn("[ensureSchema] ANALYZE failed:", err?.message || err);
+    }
   } finally {
     client.release();
+    // eslint-disable-next-line no-console
+    console.log(`[ensureSchema] completed in ${timeSince(startAll)}`);
   }
 }
 
