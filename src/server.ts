@@ -234,6 +234,9 @@ app.get("/neighbors/:file_name", async (req: Request, res: Response) => {
   const fileName = req.params.file_name;
   try {
     const tableName = getTableName();
+    const t0 = Date.now();
+    // eslint-disable-next-line no-console
+    console.log(`[neighbors] start file=${fileName}`);
     // Fetch embedding and dimensions for the selected image
     const { rows: embRows }: QueryResult<{ embedding_text: string; width?: number; height?: number }> = await pool.query(
       `SELECT embedding::text AS embedding_text, width, height
@@ -242,6 +245,8 @@ app.get("/neighbors/:file_name", async (req: Request, res: Response) => {
        LIMIT 1;`,
       [fileName]
     );
+    // eslint-disable-next-line no-console
+    console.log(`[neighbors] fetched base embedding in ${Date.now() - t0}ms (found=${embRows.length})`);
     if (!embRows.length) {
       res.type("html").send(renderTemplate([], null));
       return;
@@ -252,6 +257,9 @@ app.get("/neighbors/:file_name", async (req: Request, res: Response) => {
       width: embRows[0].width,
       height: embRows[0].height
     };
+    const t1 = Date.now();
+    // eslint-disable-next-line no-console
+    console.log("[neighbors] querying nearest neighbors ...");
     const { rows }: QueryResult<ImageRecord & { distance: number }> = await pool.query(
       `SELECT file_name, width, height, embedding <#> $1::vector AS distance
        FROM ${tableName}
@@ -260,6 +268,30 @@ app.get("/neighbors/:file_name", async (req: Request, res: Response) => {
        LIMIT 30;`,
       [embeddingText, fileName]
     );
+    // eslint-disable-next-line no-console
+    console.log(`[neighbors] neighbor query completed in ${Date.now() - t1}ms (rows=${rows.length})`);
+
+    // Optional: planner insight logs (disabled by default)
+    if (process.env.LOG_EXPLAIN === "true") {
+      try {
+        const explainAnalyze = process.env.LOG_EXPLAIN_ANALYZE === "true";
+        const mode = explainAnalyze ? "ANALYZE, BUFFERS" : "";
+        const { rows: plan } = await pool.query<{ "QUERY PLAN": string }>(
+          `EXPLAIN (${mode}) SELECT file_name, width, height, embedding <#> $1::vector AS distance
+           FROM ${tableName}
+           WHERE file_name != $2 AND embedding IS NOT NULL
+           ORDER BY distance ASC
+           LIMIT 30;`,
+          [embeddingText, fileName]
+        );
+        // eslint-disable-next-line no-console
+        console.log("[neighbors] EXPLAIN plan:");
+        for (const r of plan) console.log(r["QUERY PLAN"]);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[neighbors] EXPLAIN failed:", e);
+      }
+    }
     const images = [selectedImageRecord, ...rows];
     res.type("html").send(renderTemplate(images, null));
   } catch (err) {
